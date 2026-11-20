@@ -469,7 +469,7 @@ impl Session {
             return true;
         }
         match key {
-            Key::Numpad(ch) => self.stroke_input() && stroke_key(ch).is_some(),
+            Key::Letter(ch) | Key::Numpad(ch) if self.stroke_input() => stroke_key(ch).is_some(),
             Key::Letter(ch) => ch.is_ascii_alphabetic() && (!self.ascii_mode || self.full_shape),
             Key::Symbol(ch) => {
                 punctuation::mapping(ch, self.ascii_mode, self.full_shape, self.ascii_punct)
@@ -525,10 +525,14 @@ impl Session {
                 }
                 Outcome::handled(Edit::None)
             }
-            Key::Numpad(ch) if !self.stroke_input() || stroke_key(ch).is_none() => {
-                Outcome::handled(Edit::None)
-            }
             Key::Letter(ch) | Key::Numpad(ch) => {
+                if self.stroke_input() {
+                    if stroke_key(ch).is_none() {
+                        return Outcome::handled(Edit::None);
+                    }
+                } else if matches!(key, Key::Numpad(_)) {
+                    return Outcome::handled(Edit::None);
+                }
                 if self.ascii_mode {
                     return self.insert_symbol(ch);
                 }
@@ -734,12 +738,14 @@ impl Session {
             return prefix.to_owned();
         }
         if self.input_mode == InputMode::Stroke {
-            let strokes: Option<String> = self
-                .raw
+            return prefix
                 .chars()
-                .map(|key| stroke_key(key).map(|(_, display)| display))
+                .chain(
+                    self.raw
+                        .chars()
+                        .filter_map(|key| stroke_key(key).map(|(_, display)| display)),
+                )
                 .collect();
-            return format!("{prefix}{}", strokes.as_deref().unwrap_or(&self.raw));
         }
         if let Some(anchor) = self.homophone_anchor() {
             if !self.matches.is_empty() || self.raw.len() > 6 {

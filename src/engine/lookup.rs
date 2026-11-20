@@ -2,7 +2,7 @@
 use super::{
     preview, Command, HomophoneAnchor, HomophoneFrame, HomophoneSelection, Match, Session,
 };
-use crate::dictionary::{allowed_text, InputMode};
+use crate::dictionary::{allowed_text, stroke_key, InputMode};
 use std::{borrow::Cow, collections::HashSet, sync::Arc};
 
 impl Session {
@@ -244,7 +244,15 @@ impl Session {
         }) {
             self.homophone_matches(anchor, tone)
         } else {
-            self.lookup_dictionary(&raw)
+            if self.input_mode == InputMode::Stroke {
+                let code: String = raw
+                    .chars()
+                    .filter_map(|key| stroke_key(key).map(|(code, _)| code))
+                    .collect();
+                self.lookup_dictionary(&code)
+            } else {
+                self.lookup_dictionary(&raw)
+            }
         })
         .into();
         self.selected = 0;

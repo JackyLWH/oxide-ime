@@ -69,7 +69,7 @@ if ($LongText) {
     $custom += $source.Replace('\','\\').Replace("`n", '\n') + "`tzs`n"
     $argsList += $LongText
 }
-[IO.File]::WriteAllText((Join-Path $fixture 'data\dictionaries\custom.dict.yaml'), $custom, $utf8)
+[IO.File]::WriteAllText((Join-Path $fixture 'data\dictionaries\cangjie3_custom.dict.yaml'), $custom, $utf8)
 if (-not $FixtureOnly) {
     & $exe --registered $dllPath
     if ($LASTEXITCODE -ne 0) { throw '已註冊的輸入法未通過沉浸式載入測試。' }

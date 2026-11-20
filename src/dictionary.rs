@@ -16,20 +16,12 @@ pub(crate) use store::{Dictionaries, DictionaryStore};
 
 pub(crate) const DICTIONARY_FILES: [&str; 2] = [CANGJIE, CUSTOM];
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 struct Entry {
     code: String,
     text: String,
     allowed_in_hong_kong: bool,
     custom: bool,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum LookupKind {
-    Cangjie,
-    Quick,
-    Stroke,
-    Shortcut,
 }
 
 impl Entry {
@@ -97,7 +89,6 @@ pub(crate) struct DictionaryMatch {
 pub(crate) struct Dictionary {
     entries: Vec<Entry>,
     by_code: Vec<usize>,
-    by_shortcut: Vec<usize>,
     by_quick: OnceLock<Vec<usize>>,
     max_code_len: usize,
 }
@@ -130,25 +121,16 @@ impl Dictionary {
     pub(crate) fn parse<'a>(
         tables: impl IntoIterator<Item = (&'a str, &'a str)>,
     ) -> Result<Self, String> {
-        Self::parse_tables(tables, InputMode::Cangjie, &[])
+        Self::parse_tables(tables, InputMode::Cangjie)
     }
 
-    pub(crate) fn parse_stroke(source: &str, cangjie: &Self) -> Result<Self, String> {
-        Self::parse_tables(
-            [(crate::public_data::STROKE, source)],
-            InputMode::Stroke,
-            cangjie.custom_entries(),
-        )
-    }
-
-    fn custom_entries(&self) -> &[Entry] {
-        &self.entries[self.entries.partition_point(|entry| !entry.custom)..]
+    pub(crate) fn parse_stroke(source: &str) -> Result<Self, String> {
+        Self::parse_tables([(crate::public_data::STROKE, source)], InputMode::Stroke)
     }
 
     fn parse_tables<'a>(
         tables: impl IntoIterator<Item = (&'a str, &'a str)>,
         mode: InputMode,
-        shortcuts: &[Entry],
     ) -> Result<Self, String> {
         let mut entries = Vec::new();
         for (table, (name, source)) in tables.into_iter().enumerate() {
@@ -183,18 +165,12 @@ impl Dictionary {
                 return Err(format!("{name} 缺少字庫表頭結束標記"));
             }
         }
-        entries.extend_from_slice(shortcuts);
         Ok(Self::index(entries))
     }
 
     fn index(entries: Vec<Entry>) -> Self {
         let mut by_code: Vec<_> = (0..entries.len()).collect();
         by_code.sort_unstable_by(|&left, &right| entries[left].code.cmp(&entries[right].code));
-        let by_shortcut = by_code
-            .iter()
-            .copied()
-            .filter(|&index| entries[index].custom)
-            .collect();
         let max_code_len = entries
             .iter()
             .map(|entry| entry.code.len())
@@ -203,7 +179,6 @@ impl Dictionary {
         Self {
             entries,
             by_code,
-            by_shortcut,
             by_quick: OnceLock::new(),
             max_code_len,
         }
@@ -217,81 +192,20 @@ impl Dictionary {
         converter: Option<&Converter>,
         ranking: &Ranking,
     ) -> Vec<DictionaryMatch> {
-        if !mode.accepts_lookup(prefix.as_bytes()) || prefix.len() > self.max_code_len {
+        if !mode.accepts_code(prefix.as_bytes())
+            || prefix.len()
+                > if mode == InputMode::Quick {
+                    2
+                } else {
+                    self.max_code_len
+                }
+        {
             return Vec::new();
         }
-        let mut ordered = Vec::new();
-        match mode {
-            InputMode::Cangjie => {
-                self.append_ordered(
-                    &mut ordered,
-                    LookupKind::Cangjie,
-                    prefix,
-                    limit_chars,
-                    ranking,
-                );
-            }
-            InputMode::Quick => {
-                if prefix.len() <= 2 {
-                    self.append_ordered(
-                        &mut ordered,
-                        LookupKind::Quick,
-                        prefix,
-                        limit_chars,
-                        ranking,
-                    );
-                }
-                self.append_ordered(
-                    &mut ordered,
-                    LookupKind::Shortcut,
-                    prefix,
-                    limit_chars,
-                    ranking,
-                );
-            }
-            InputMode::Stroke => {
-                let strokes: Option<String> = prefix
-                    .chars()
-                    .map(|key| stroke_key(key).map(|(code, _)| code))
-                    .collect();
-                if let Some(strokes) = strokes {
-                    self.append_ordered(
-                        &mut ordered,
-                        LookupKind::Stroke,
-                        &strokes,
-                        limit_chars,
-                        ranking,
-                    );
-                }
-                if prefix.bytes().all(|byte| byte.is_ascii_lowercase()) {
-                    self.append_ordered(
-                        &mut ordered,
-                        LookupKind::Shortcut,
-                        prefix,
-                        limit_chars,
-                        ranking,
-                    );
-                }
-            }
-        }
-        self.render_matches(ordered, converter)
-    }
-
-    fn append_ordered(
-        &self,
-        ordered: &mut Vec<(bool, usize, usize)>,
-        kind: LookupKind,
-        prefix: &str,
-        limit_chars: bool,
-        ranking: &Ranking,
-    ) {
-        let indices = if kind == LookupKind::Quick {
+        let indices = if mode == InputMode::Quick {
             let quick = self.by_quick.get_or_init(|| {
                 let mut quick: Vec<_> = (0..self.entries.len())
-                    .filter(|&index| {
-                        let entry = &self.entries[index];
-                        !entry.custom && Command::from_marker(&entry.text).is_none()
-                    })
+                    .filter(|&index| Command::from_marker(&self.entries[index].text).is_none())
                     .collect();
                 quick.sort_unstable_by_key(|&index| self.entries[index].quick());
                 quick
@@ -301,30 +215,22 @@ impl Dictionary {
             })
         } else {
             let literal = prefix.split_once('*').map_or(prefix, |(start, _)| start);
-            let index = if kind == LookupKind::Shortcut {
-                &self.by_shortcut
-            } else {
-                &self.by_code
-            };
-            prefix_indices(index, literal.as_bytes(), |index| {
+            prefix_indices(&self.by_code, literal.as_bytes(), |index| {
                 self.entries[index].code.as_bytes()
             })
         };
-        ordered.reserve(indices.len());
+        let mut ordered = Vec::with_capacity(indices.len());
         for &index in indices {
             let entry = &self.entries[index];
             if limit_chars && !entry.allowed_in_hong_kong {
                 continue;
             }
-            if kind == LookupKind::Stroke && entry.custom {
-                continue;
-            }
-            let code_len = if kind == LookupKind::Quick {
+            let code_len = if mode == InputMode::Quick {
                 entry.code.len().min(2)
             } else {
                 entry.code.len()
             };
-            if kind == LookupKind::Stroke
+            if mode == InputMode::Stroke
                 && (code_len < prefix.len()
                     || !prefix
                         .bytes()
@@ -334,20 +240,13 @@ impl Dictionary {
                 continue;
             }
             let prediction = code_len != prefix.len();
-            let rank = if prediction || kind != LookupKind::Cangjie {
+            let rank = if prediction || mode != InputMode::Cangjie {
                 ranking.rank(&entry.text)
             } else {
                 0
             };
             ordered.push((prediction, rank, index));
         }
-    }
-
-    fn render_matches(
-        &self,
-        mut ordered: Vec<(bool, usize, usize)>,
-        converter: Option<&Converter>,
-    ) -> Vec<DictionaryMatch> {
         // 用原碼表序號作最後比較，並在排序後去重，確保完整匹配優先。
         ordered.sort_unstable();
         let mut seen = HashSet::new();

@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use super::pipe::{client_pipe_name, open_client, pipe_name, read_all, server_process, write_all};
 use super::protocol::{
     decode_response, decode_single, read_u32, Operation, EXTENDED_MODES, LOOKUP_MODE_SHIFT, MAGIC,
-    MAX_BODY, MAX_PREFIX, RAW_STROKE_KEYS, TIMEOUT,
+    MAX_BODY, MAX_PREFIX, TIMEOUT,
 };
 use super::{ModeAction, Modes};
 use crate::diagnostics::{self, Level, WarningLimit};
@@ -133,18 +133,13 @@ pub(crate) fn lookup(
             previews: Vec::new(),
         });
     }
-    if !mode.accepts_lookup(prefix.as_bytes()) {
+    if !mode.accepts_code(prefix.as_bytes()) {
         return Err("查字編碼無效".into());
-    }
-    let mut flags =
-        u8::from(limit) | (u8::from(simplified) << 1) | ((mode as u8) << LOOKUP_MODE_SHIFT);
-    if mode == InputMode::Stroke {
-        flags |= RAW_STROKE_KEYS;
     }
     let (count, body) = request(
         client_pipe_name()?,
         Operation::Lookup,
-        flags,
+        u8::from(limit) | (u8::from(simplified) << 1) | ((mode as u8) << LOOKUP_MODE_SHIFT),
         prefix.as_bytes(),
     )?;
     let snapshot = u64::from_le_bytes(

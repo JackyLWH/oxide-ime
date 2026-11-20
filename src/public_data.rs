@@ -12,7 +12,7 @@ pub(crate) const S2T: [&str; 3] = ["s2t/custom.json", S2T_PHRASES, "s2t/s2t-char
 pub(crate) const JYUTPING: &str = "jyut6ping3.chars.dict.csv.json";
 pub(crate) const RANKING: &str = "common-rank.txt";
 pub(crate) const CANGJIE: &str = "cangjie3.dict.yaml";
-pub(crate) const CUSTOM: &str = "custom.dict.yaml";
+pub(crate) const CUSTOM: &str = "cangjie3_custom.dict.yaml";
 pub(crate) const STROKE: &str = "stroke.dict.yaml";
 pub(crate) const FUZZY: &str = "homophone.fuzzy.yaml";
 pub(crate) const CUHK_RANK: &str = "build/cuhk-rank.txt";
@@ -30,10 +30,6 @@ pub(crate) const INITIAL_PHRASES: &str = include_str!("../assets/templates/t2s/T
 pub(crate) const INITIAL_JYUTPING: &str =
     include_str!("../assets/templates/jyut6ping3.chars.dict.csv.json");
 pub(crate) const INITIAL_RANKING: &str = include_str!("../assets/templates/common-rank.txt");
-pub(crate) const CUSTOM_TEMPLATE: (&str, &[u8]) = (
-    CUSTOM,
-    include_bytes!("../assets/templates/custom.dict.yaml"),
-);
 static STROKE_BYTES: [u8; include_bytes!("../assets/templates/stroke.dict.yaml").len()] =
     *include_bytes!("../assets/templates/stroke.dict.yaml");
 pub(crate) const STROKE_TEMPLATE: (&str, &[u8]) = (STROKE, &STROKE_BYTES);
@@ -56,7 +52,10 @@ pub(crate) const TEMPLATES: &[(&str, &[u8])] = &[
         CANGJIE,
         include_bytes!("../assets/templates/cangjie3.dict.yaml"),
     ),
-    CUSTOM_TEMPLATE,
+    (
+        CUSTOM,
+        include_bytes!("../assets/templates/cangjie3_custom.dict.yaml"),
+    ),
     STROKE_TEMPLATE,
     (JYUTPING, INITIAL_JYUTPING.as_bytes()),
     (
@@ -89,10 +88,6 @@ impl<T, const N: usize> Cache<T, N> {
             attempted: None,
             value: None,
         }
-    }
-
-    pub(crate) fn invalidate(&mut self) {
-        self.attempted = None;
     }
 
     pub(crate) fn get(

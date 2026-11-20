@@ -73,7 +73,7 @@ fn cangjie_keeps_exact_table_order_and_ranks_predictions_before_deduplication() 
 #[test]
 fn quick_uses_both_tables_and_commits_page_two_in_full() {
     let base = "...\n吧\to\n你\tonf\n他\tof\n但\toabf\n倆\toakf\n俄\tohqf\n仁\toaxf\n代\toif\n件\tohqdf\n任\tohgf\n";
-    let custom = "...\n自訂長文超過四字\\n下一行\tofextra\n你\tof\n__rime_time__\tztime\n";
+    let custom = "...\n自訂長文超過四字\\n下一行\tonf\n你\tof\n__rime_time__\tztime\n";
     let dictionary = Arc::new(Dictionary::parse([("base", base), ("custom", custom)]).unwrap());
     let ranking = Arc::new(Ranking::parse("你\n他\n任\n").unwrap());
     let mut session = Session::local(Dictionaries {
@@ -111,17 +111,15 @@ fn quick_uses_both_tables_and_commits_page_two_in_full() {
 
 #[test]
 fn stroke_wildcard_matches_exactly_one_stroke_and_ranks_exact_then_predictions() {
-    let cangjie = dictionary();
     let stroke = Arc::new(
         Dictionary::parse_stroke(
             "...\n三\thhh\n十\ths\n二\thh\n一\th\n主\tnhhsh\n本\thspnh\n丿\tp\n",
-            &cangjie,
         )
         .unwrap(),
     );
     let ranking = Arc::new(Ranking::parse("本\n二\n十\n三\n一\n").unwrap());
     let mut session = Session::local(Dictionaries {
-        cangjie,
+        cangjie: dictionary(),
         stroke: Some(stroke),
         ranking,
     });
@@ -146,14 +144,7 @@ fn stroke_wildcard_matches_exactly_one_stroke_and_ranks_exact_then_predictions()
         .map(|item| item.text)
         .collect();
     assert_eq!(view, ["二", "十", "本", "三"]);
-    assert_eq!(
-        session.handle(Key::Letter('h')).edit,
-        Edit::Preedit("u6h".into())
-    );
-    assert_eq!(
-        session.handle(Key::Backspace).edit,
-        Edit::Preedit("一＊".into())
-    );
+    assert_eq!(session.handle(Key::Letter('h')).edit, Edit::None);
     assert_eq!(session.handle(Key::Enter).edit, Edit::Commit("u6".into()));
 
     session.handle(Key::Numpad('7'));
@@ -161,46 +152,6 @@ fn stroke_wildcard_matches_exactly_one_stroke_and_ranks_exact_then_predictions()
     session.handle(Key::Numpad('7'));
     assert_eq!(session.ui_count(), 1);
     assert_eq!(session.handle(Key::Space).edit, Edit::Commit("三".into()));
-}
-
-#[test]
-fn shared_shortcuts_keep_their_full_codes_in_every_scheme() {
-    let base = "...\n你\tonf\n書\tmynote\n";
-    let custom = "...\n自訂長文\\n第二行\tmynote\n共用筆劃\tui\n個人通配\tl\n";
-    let cangjie = Arc::new(Dictionary::parse([("base", base), ("custom", custom)]).unwrap());
-    let stroke = Arc::new(Dictionary::parse_stroke("...\n十\ths\n工\thsh\n", &cangjie).unwrap());
-    let ranking = Arc::new(Ranking::parse("工\n十\n書\n你\n").unwrap());
-    let view = Dictionaries {
-        cangjie,
-        stroke: Some(stroke),
-        ranking,
-    };
-    for mode in [InputMode::Cangjie, InputMode::Quick, InputMode::Stroke] {
-        let mut session = Session::local(view.clone());
-        session.ascii_mode = false;
-        session.input_mode = mode;
-        for key in "mynote".chars() {
-            assert!(session.handle(Key::Letter(key)).handled);
-        }
-        let index = if mode == InputMode::Cangjie { 1 } else { 0 };
-        assert_eq!(
-            session.handle(Key::Select(index)).edit,
-            Edit::CommitCandidate("自訂長文\n第二行".into())
-        );
-    }
-    let texts = |mode, code| {
-        let table = view.table(mode).unwrap();
-        table
-            .lookup(mode, code, true, None, &view.ranking)
-            .into_iter()
-            .map(|item| table.text(item, None).into_owned())
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(texts(InputMode::Quick, "of"), ["你"]);
-    assert_eq!(texts(InputMode::Stroke, "ui"), ["十", "共用筆劃", "工"]);
-    assert_eq!(texts(InputMode::Stroke, "78"), ["十", "工"]);
-    assert!(texts(InputMode::Stroke, "l").contains(&"個人通配".to_owned()));
-    assert!(!texts(InputMode::Stroke, "6").contains(&"個人通配".to_owned()));
 }
 
 #[test]

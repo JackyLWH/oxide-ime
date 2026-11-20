@@ -606,8 +606,8 @@ def main():
             "---\n...\n日\ta\n曰\ta\n你\tonf\n他\tof\n另\tonf\n吾\tonf\n仰\tonf\n任\tonf\n伙\tonf\n件\tonf\n",
             encoding="utf-8",
         )
-        (dictionaries / "custom.dict.yaml").write_text(
-            "---\n...\n" + "長" * 30 + "\\n第二行\tzzz\n加長候選文字\tof\n第十個自訂候選\\n第二行\tofb\n",
+        (dictionaries / "cangjie3_custom.dict.yaml").write_text(
+            "---\n...\n" + "長" * 30 + "\\n第二行\tzzz\n加長候選文字\toaf\n第十個自訂候選\\n第二行\tobf\n",
             encoding="utf-8",
         )
         (dictionaries / "common-rank.txt").write_text("你\n", encoding="utf-8")

@@ -433,17 +433,6 @@ def main():
     press(ord("F"))
     press(ord("1"))
     assert store.content() == before + "你", "沙盒速成應經字庫服務查詢並上屏"
-
-    def check_shared_shortcut():
-        before = store.content()
-        for letter in "MYNOTE":
-            press(ord(letter))
-        writes = store.write_count
-        press(ord("1"))
-        expected = "跨方案測試詞\n第二行"
-        assert store.content() == before + expected and store.wrote_payload_once(writes, expected)
-
-    check_shared_shortcut()
     before = store.content()
     press(0x73)
     press(ord("6"))  # 速成 → 筆劃
@@ -465,8 +454,7 @@ def main():
     press(0x67)
     press(ord("1"))
     assert store.content() == before + "日", "沙盒筆劃應經字庫服務查詢並上屏"
-    check_shared_shortcut()
-    print("PASS: 沙盒速成、筆劃通配、小鍵盤及共用長碼完整上屏。", flush=True)
+    print("PASS: 沙盒速成、全字筆劃通配、數字小鍵盤選碼及完整上屏。", flush=True)
 
     t.release(sink)
     check("unfocus", t.call(manager, 8, [t.PTR], None))

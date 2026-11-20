@@ -23,7 +23,7 @@ pwsh -NoProfile -File .\scripts\build-release.ps1 -Offline
 pwsh -NoProfile -File .\scripts\build-installer.ps1 -Offline
 ~~~
 
-第二個命令將四個發行元件、授權及 `assets/templates/build/` 的四個重建來源檔封裝成 `OxideIme-Setup-v2.0.exe`。安裝期間會將重建來源解壓至暫存目錄，初次初始化或從舊版升級時補到登入者的 `data/dictionaries/build/`。其他 Windows 帳戶可各自執行安裝程式取得這些來源。Maintenance 更新字庫時，讀取使用者目錄的副本並比對 `.initialized`。其餘公用字庫初始範本仍由 Maintenance 內嵌。
+第二個命令將四個發行元件、授權及 `assets/templates/build/` 的四個重建來源檔封裝成 `OxideIme-Setup-v<版本>.exe`。安裝期間會將重建來源解壓至暫存目錄，初次初始化或從舊版升級時補到登入者的 `data/dictionaries/build/`。其他 Windows 帳戶可各自執行安裝程式取得這些來源。Maintenance 更新字庫時，讀取使用者目錄的副本並比對 `.initialized`。其餘公用字庫初始範本仍由 Maintenance 內嵌。
 
 公開安裝包使用預設建置。自用版可另存帶有 Discord 通知的安裝包。
 

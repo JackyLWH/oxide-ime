@@ -194,8 +194,6 @@ mod tests {
         let edited = dictionaries.join(public_data::CUHK_RANK);
         fs::create_dir_all(edited.parent().unwrap()).unwrap();
         fs::write(&edited, "原有自訂排名").unwrap();
-        let legacy = dictionaries.join("cangjie3_custom.dict.yaml");
-        fs::write(&legacy, "...\n原有附加詞條\tabc\n").unwrap();
         let marker = data.join(".initialized");
         fs::write(
             &marker,
@@ -208,29 +206,8 @@ mod tests {
             [public_data::CUHK_RANK],
         );
         assert_eq!(fs::read_to_string(edited).unwrap(), "原有自訂排名");
-        let custom = dictionaries.join(public_data::CUSTOM);
-        assert_eq!(fs::read(&custom).unwrap(), public_data::CUSTOM_TEMPLATE.1);
-        assert_eq!(
-            fs::read_to_string(legacy).unwrap(),
-            "...\n原有附加詞條\tabc\n"
-        );
-        fs::write(&custom, "...\n新自訂詞條\tabc\n").unwrap();
-        assert!(initialise_at(&data, &docs, Some(templates()), "opencc\n")
-            .unwrap()
-            .is_empty());
-        assert_eq!(
-            fs::read_to_string(custom).unwrap(),
-            "...\n新自訂詞條\tabc\n"
-        );
         let stored: serde_json::Value = serde_json::from_slice(&fs::read(marker).unwrap()).unwrap();
         assert_eq!(stored["sha256"]["common-rank.txt"], "last-update");
-        assert_eq!(
-            stored["sha256"][public_data::CUSTOM]
-                .as_str()
-                .unwrap()
-                .len(),
-            64
-        );
         assert_eq!(
             fs::read(dictionaries.join(public_data::STROKE)).unwrap(),
             public_data::STROKE_TEMPLATE.1,

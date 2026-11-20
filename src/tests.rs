@@ -278,7 +278,7 @@ fn text_service_lifecycle_and_native_tsf_manager() {
     let _keyboard = TestKeyboardState::neutral();
     let directory = fixture_dir("service-test");
     std::fs::write(directory.join("cangjie3.dict.yaml"), "---\n...\n日\ta\n").unwrap();
-    std::fs::write(directory.join("custom.dict.yaml"), "---\n...\n").unwrap();
+    std::fs::write(directory.join("cangjie3_custom.dict.yaml"), "---\n...\n").unwrap();
     crate::tsf::service::set_test_dictionary(directory.clone());
     unsafe {
         assert_eq!(DllCanUnloadNow(), ffi::S_OK);

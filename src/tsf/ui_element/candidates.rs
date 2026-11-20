@@ -515,7 +515,7 @@ mod tests {
             "---\n...\n日\ta\n曰\ta\n昌\ta\n",
         )
         .unwrap();
-        std::fs::write(root.join("custom.dict.yaml"), "---\n...\n").unwrap();
+        std::fs::write(root.join("cangjie3_custom.dict.yaml"), "---\n...\n").unwrap();
         let mut session = Session::new(Arc::new(
             Dictionary::load(&root.join("cangjie3.dict.yaml"), None).unwrap(),
         ));

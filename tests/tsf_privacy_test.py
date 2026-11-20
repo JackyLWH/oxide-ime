@@ -11,7 +11,7 @@ sys.dont_write_bytecode = True
 import tsf_real_store_test as integration
 
 root = Path(__file__).resolve().parent.parent
-private_dictionary = (root / "data" / "dictionaries" / "custom.dict.yaml").resolve()
+private_dictionary = (root / "data" / "dictionaries" / "cangjie3_custom.dict.yaml").resolve()
 original_builtin_open = builtins.open
 original_io_open = io.open
 original_copy = shutil.copy2

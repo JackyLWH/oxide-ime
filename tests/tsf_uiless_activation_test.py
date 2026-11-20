@@ -20,7 +20,7 @@ def run_isolated(source, project):
         data.mkdir(parents=True)
         outputs.mkdir()
         (data / "cangjie3.dict.yaml").write_text("---\n...\n日\ta\n", encoding="utf-8")
-        (data / "custom.dict.yaml").write_text("---\n...\n", encoding="utf-8")
+        (data / "cangjie3_custom.dict.yaml").write_text("---\n...\n", encoding="utf-8")
         dll = outputs / source.name
         shutil.copy2(source, dll)
         subprocess.run([

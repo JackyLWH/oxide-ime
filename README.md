@@ -8,7 +8,7 @@
 
 ## 安裝與更新
 
-在 x64 Windows 執行 `outputs\OxideIme-Setup-v2.0.exe`。安裝程式會註冊 x64 及 x86 文字服務，附帶 Cangjie3-Plus 及 Rime Stroke 公用字庫。首次安裝可選擇使用者資料目錄、要更新的公用資料和要下載的缺少字型。正式版升級會保留使用者資料並清理被取代的程式檔。 [安裝及使用](docs/installation.md)
+在 x64 Windows 執行 `outputs\OxideIme-Setup-v<版本>.exe`，例如 `OxideIme-Setup-v2.0.exe`。安裝程式會註冊 x64 及 x86 文字服務，附帶 Cangjie3-Plus 及 Rime Stroke 公用字庫。首次安裝可選擇使用者資料目錄、要更新的公用資料和要下載的缺少字型。正式版升級會保留使用者資料並清理被取代的程式檔。 [安裝及使用](docs/installation.md)
 
 ### 開發環境註冊
 
@@ -43,7 +43,7 @@ pwsh -NoProfile -File .\scripts\update-dll.ps1
 | Ctrl+/ | 切換繁簡，短暫顯示「繁／簡」；組字期間亦可使用，並即時更新候選。 |
 | \` | 中文模式下，未組字時進入「粵拼模式」。選字、提交原碼、再按反引號或按 Esc，都會回到原先的倉頡、速成或筆劃，並顯示模式提示。切換程式時保留粵拼模式，清除原程式的未完成拼音。 |
 | Ctrl+\` | 暫時切換本次反查的模糊／精確模式，顯示「模糊拼音」或「精確拼音」。 |
-| a–z | 倉頡用原碼，速成的公用字庫取倉頡碼首尾。一碼的字沿用原碼。三個模式均可以輸入自訂詞條的完整英文字母編碼。 |
+| a–z | 倉頡輸入原碼，速成取倉頡碼首尾。一碼的字沿用原碼。 |
 | U、I、O、J、K、L | 筆劃模式輸入橫、豎、撇、捺、折和任意一筆。小鍵盤 7、8、9、4、5、6 也可輸入對應筆劃。 |
 | 主鍵盤數字或空白鍵 | 倉頡和粵拼用 1–2，速成和筆劃用 1–9。空白鍵選目前候選。 |
 | 左／上、右／下 | 移動目前候選。 |
@@ -81,17 +81,13 @@ Windows 的沉浸式 XAML 文字欄（例如工作管理員搜尋框）支援已
 
 ## 自訂詞條
 
-正式安裝請用「開啟資料目錄」開啟 `dictionaries/custom.dict.yaml`。預設位置是 `%LOCALAPPDATA%\OxideIME\data`。從開發腳本註冊時使用專案內的 `data\dictionaries\custom.dict.yaml`。字典表頭以 `...` 結束。每筆另佔一行，依次填完整內容、真正的 **Tab** 和小寫英文字母編碼。內容中的 `\n` 代表上屏時換行。
+正式安裝請用「開啟資料目錄」開啟 `dictionaries/cangjie3_custom.dict.yaml`。預設位置是 `%LOCALAPPDATA%\OxideIME\data`。從開發腳本註冊時使用專案內的 `data\dictionaries\cangjie3_custom.dict.yaml`。字典表頭以 `...` 結束。每筆另佔一行，依次填完整內容、真正的 **Tab** 和小寫英文字母編碼。內容中的 `\n` 代表上屏時換行。
 
 ```text
 第一行\n第二行<Tab>example
 ```
 
-在倉頡、速成及筆劃均可輸入 `example` 選取同一詞條。自訂碼可以超過兩碼。筆劃輸入英文字母時會查自訂詞，同一串字母若亦是筆劃碼會同時列出公用字。小鍵盤維持公用筆劃輸入。
-
 儲存為 UTF-8 後，已開啟的程式會在後續輸入時自動檢查並重新載入字庫。若正在選字，已顯示的候選先按原字庫提交，之後採用新字庫。格式無效或檔案仍在寫入時會沿用上一份有效字庫。開發版使用專案的 `data/`，公開安裝程式取用 `assets/templates/` 的初始範本。
-
-如要沿用舊 `cangjie3_custom.dict.yaml` 的詞條，請自行合併至 `custom.dict.yaml`。
 
 字典內 `__rime_clipboard_raw__`、`__rime_clipboard_s2t__`、`__rime_time__`、`__rime_date__` 是保留的命令標記，請保留其編碼欄位；輸入法會以動態候選取代標記，不會把標記本身上屏。
 

@@ -543,7 +543,7 @@ def run_with_fixture(dll_path):
             dictionaries = fixture / "data" / "dictionaries"
             shutil.copy2(templates / "jyut6ping3.chars.dict.csv.json", dictionaries)
             shutil.copytree(templates / "t2s", dictionaries / "t2s")
-        copied_custom = fixture / "data" / "dictionaries" / "custom.dict.yaml"
+        copied_custom = fixture / "data" / "dictionaries" / "cangjie3_custom.dict.yaml"
         long_text = ("測" * 140 + "。\\n") * 6 + "😀" + "試" * 32 + "。"
         code = "z" * 20
         if "--long-text" in sys.argv:
@@ -807,7 +807,7 @@ def main():
 
     data_dir = dll_path.parent.parent / "data" / "dictionaries"
     base = dictionary_rows(data_dir / "cangjie3.dict.yaml")
-    custom = dictionary_rows(data_dir / "custom.dict.yaml")
+    custom = dictionary_rows(data_dir / "cangjie3_custom.dict.yaml")
     long_text, long_code = next((text, code) for text, code in custom if "\\n" in text and len(text) > 20)
     rows = [(text, code, position) for position, (text, code) in enumerate(base + custom)
             if code.startswith(long_code) and all(ord(ch) <= 0xFFFF or 0x1F000 <= ord(ch) <= 0x1FFFF for ch in text)]
@@ -1016,7 +1016,7 @@ def main():
         if "--test-fixture" not in sys.argv or not data_dir.resolve().is_relative_to(workspace):
             raise RuntimeError("字庫重載測試只允許修改 work 內的隔離副本")
         toggle()
-        custom_path = data_dir / "custom.dict.yaml"
+        custom_path = data_dir / "cangjie3_custom.dict.yaml"
         original = custom_path.read_bytes()
         separator = b"" if original.endswith(b"\n") else b"\n"
         code = "z" * 24

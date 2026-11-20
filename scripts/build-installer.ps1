@@ -22,9 +22,9 @@ $commands = @(
     "__rime_clipboard_raw__`tzv", "__rime_clipboard_s2t__`tzv",
     "__rime_time__`tztime", "__rime_date__`tzdate"
 )
-$custom = [IO.File]::ReadAllLines((Join-Path $release.Project 'assets\templates\custom.dict.yaml'))
+$custom = [IO.File]::ReadAllLines((Join-Path $release.Project 'assets\templates\cangjie3_custom.dict.yaml'))
 if (($custom -join "`n") -cne ($commands -join "`n")) {
-    throw '公開自訂詞庫範本必須只含四個指令標記。'
+    throw '公開倉頡附加詞庫的範本必須只含四個指令標記。'
 }
 & (Join-Path $PSScriptRoot 'build-release.ps1') -Version $release.Version -Offline:$Offline -PrivateDiscord:$PrivateDiscord
 New-Item -Path $work -ItemType Directory -Force | Out-Null

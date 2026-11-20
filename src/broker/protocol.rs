@@ -6,7 +6,6 @@ pub(super) const MAX_BODY: usize = 64 * 1024 * 1024;
 // 筆劃單一通配碼可涵蓋十萬以上的異體與延伸區字。
 pub(super) const MAX_COUNT: usize = 250_000;
 pub(super) const LOOKUP_MODE_SHIFT: u8 = 2;
-pub(super) const RAW_STROKE_KEYS: u8 = 0x10;
 pub(super) const EXTENDED_MODES: u8 = 0x80;
 pub(super) const TIMEOUT: Duration = Duration::from_millis(750);
 pub(super) const MAGIC: &[u8; 4] = b"RI01";

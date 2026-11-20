@@ -26,13 +26,6 @@ impl InputMode {
                 _ => code.iter().all(u8::is_ascii_lowercase),
             }
     }
-
-    pub(crate) fn accepts_lookup(self, keys: &[u8]) -> bool {
-        !keys.is_empty()
-            && keys.iter().all(|key| {
-                key.is_ascii_lowercase() || (self == Self::Stroke && (b'4'..=b'9').contains(key))
-            })
-    }
 }
 
 pub(crate) fn stroke_key(key: char) -> Option<(char, char)> {

@@ -255,10 +255,7 @@ def run_child(kernel, sid, executable, script, dll, private, pipe_name, fixture,
                     raise c.WinError(c.get_last_error())
                 shared_checked = True
             if not reloaded and b"READY_FOR_RELOAD" in output:
-                private.write_text(
-                    "---\n...\n即時更新詞條\tz\n跨方案測試詞\\n第二行\tmynote\n" + COMMAND_MARKERS,
-                    encoding="utf-8",
-                )
+                private.write_text("---\n...\n即時更新詞條\tz\n" + COMMAND_MARKERS, encoding="utf-8")
                 data = c.create_string_buffer(b"continue\n")
                 written = w.DWORD()
                 if not kernel.WriteFile(input_write, data, 9, c.byref(written), None) or written.value != 9:
@@ -378,7 +375,7 @@ def main():
             (data / "jyut6ping3.chars.dict.csv.json").write_text(
                 '{"日":{"jat6":"預設"},"逸":{"jat6":"預設"},"我":{"ngo5":"預設"}}', encoding="utf-8"
             )
-            private = data / "custom.dict.yaml"
+            private = data / "cangjie3_custom.dict.yaml"
             private.write_text("---\n...\n這是一條長文測試詞條超過二十個字元測試完整輸出" + "長" * 100 + "\\n第二行\tz\n" + COMMAND_MARKERS, encoding="utf-8")
             conversion = data / "s2t"
             conversion.mkdir()

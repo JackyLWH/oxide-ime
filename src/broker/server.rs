@@ -15,7 +15,7 @@ use super::pipe::{
 };
 use super::protocol::{
     add_text, read_u32, Operation, EXTENDED_MODES, LOOKUP_MODE_SHIFT, MAGIC, MAX_BODY, MAX_COUNT,
-    MAX_PREFIX, RAW_STROKE_KEYS,
+    MAX_PREFIX,
 };
 use crate::diagnostics::{self, Level, WarningLimit};
 use crate::dictionary::{Dictionary, DictionaryMatch, DictionaryStore, InputMode};
@@ -113,7 +113,7 @@ impl BrokerState {
         body.extend_from_slice(&0u64.to_le_bytes());
         for &item in &matches {
             let value = dictionary.text(item, converter.as_deref());
-            if dictionary.command(item).is_some() {
+            if mode == InputMode::Cangjie && dictionary.command(item).is_some() {
                 add_text(body, &value)?;
             } else {
                 add_text(body, &preview(&value, mode))?;
@@ -236,39 +236,12 @@ fn handle_client(pipe: OwnedHandle, state: Arc<BrokerState>) -> Result<(), Strin
     let mut body = Vec::new();
     let count = match operation {
         LegacyLookup | Lookup => {
-            let raw_stroke_keys = flags & RAW_STROKE_KEYS != 0;
-            let mode = InputMode::from_id((flags & !RAW_STROKE_KEYS) >> LOOKUP_MODE_SHIFT)
-                .filter(|mode| {
-                    if raw_stroke_keys {
-                        operation == Lookup
-                            && *mode == InputMode::Stroke
-                            && mode.accepts_lookup(&payload)
-                    } else {
-                        (operation == Lookup || *mode == InputMode::Cangjie)
-                            && mode.accepts_code(&payload)
-                    }
-                })
+            let mode = InputMode::from_id(flags >> LOOKUP_MODE_SHIFT)
+                .filter(|mode| operation == Lookup || *mode == InputMode::Cangjie)
+                .filter(|mode| mode.accepts_code(&payload))
                 .ok_or("查字編碼無效")?;
             let code = std::str::from_utf8(&payload).map_err(|_| "查字編碼無效")?;
-            let code = if mode == InputMode::Stroke && !raw_stroke_keys {
-                // 舊 DLL 送出碼表符號。用等價的小鍵盤編碼查原筆劃候選。
-                Cow::Owned(
-                    code.bytes()
-                        .map(|byte| match byte {
-                            b'h' => '7',
-                            b's' => '8',
-                            b'p' => '9',
-                            b'n' => '4',
-                            b'z' => '5',
-                            b'*' => '6',
-                            _ => unreachable!("筆劃碼已驗證"),
-                        })
-                        .collect::<String>(),
-                )
-            } else {
-                Cow::Borrowed(code)
-            };
-            state.lookup(&client, &code, flags, mode, operation == Lookup, &mut body)?
+            state.lookup(&client, code, flags, mode, operation == Lookup, &mut body)?
         }
         Resolve | ReverseMatch
             if length == 12 && (flags == 0 || (operation == Resolve && flags == 1)) =>

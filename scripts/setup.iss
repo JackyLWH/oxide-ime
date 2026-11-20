@@ -101,7 +101,7 @@ begin
   Keys[4] := 'cangjie';
   UpdatesPage := CreateInputOptionPage(DataPage.ID, '公用資料更新',
     '選擇要自動更新的資料',
-    '取消勾選的項目會保留現有版本。自訂詞庫由使用者自行管理。',
+    '取消勾選的項目會保留現有版本。所有自訂倉頡檔案由使用者自行管理。',
     False, False);
   UpdatesPage.Add('OpenCC 繁轉簡字詞表');
   UpdatesPage.Add('OpenCC／同文堂 簡轉繁詞組表');

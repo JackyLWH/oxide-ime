@@ -1,6 +1,6 @@
 //! 各宿主程序按專案字典的檔案狀態重新載入，失敗時保留上一份有效字庫。
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use std::time::Instant;
 
 use super::{Dictionary, InputMode, Ranking, DICTIONARY_FILES};
@@ -38,7 +38,6 @@ pub(crate) struct DictionaryStore {
     attempted: Option<Tables>,
     current: Option<Arc<Dictionary>>,
     stroke: Cache<Dictionary>,
-    stroke_source: Weak<Dictionary>,
     ranking: Cache<Ranking>,
     fuzzy_stamp: Option<FileStamp>,
     fuzzy: Option<Arc<Fuzzy>>,
@@ -65,7 +64,6 @@ impl DictionaryStore {
             attempted: None,
             current: None,
             stroke: Cache::empty(),
-            stroke_source: Weak::new(),
             ranking: Cache::empty(),
             fuzzy_stamp: None,
             fuzzy: None,
@@ -76,18 +74,11 @@ impl DictionaryStore {
     pub(crate) fn dictionaries(&mut self, mode: InputMode) -> Result<Dictionaries, String> {
         let cangjie = self.refresh()?;
         let stroke = if mode == InputMode::Stroke {
-            if !self.stroke_source.upgrade().is_some_and(|previous| {
-                Arc::ptr_eq(&previous, &cangjie)
-                    || previous.custom_entries() == cangjie.custom_entries()
-            }) {
-                self.stroke.invalidate();
-            }
-            self.stroke_source = Arc::downgrade(&cangjie);
             self.stroke.get(
                 &self.directory,
                 [public_data::STROKE],
                 "stroke",
-                |[source]| Dictionary::parse_stroke(source, &cangjie),
+                |[source]| Dictionary::parse_stroke(source),
             )
         } else {
             None
@@ -233,34 +224,6 @@ mod tests {
     use crate::engine::{Key, Session};
 
     #[test]
-    fn stroke_refreshes_shortcuts_and_keeps_the_last_valid_copy() {
-        let dir = crate::tests::fixture_dir("stroke-shortcut-reload");
-        std::fs::write(dir.join(DICTIONARY_FILES[0]), "...\n日\ta\n").unwrap();
-        std::fs::write(dir.join(public_data::STROKE), "...\n一\th\n").unwrap();
-        let custom = dir.join(DICTIONARY_FILES[1]);
-        std::fs::write(&custom, "...\n舊詞條\tmynote\n").unwrap();
-        let mut store = DictionaryStore::new(dir.clone());
-        let text = |view: &Dictionaries| {
-            let stroke = view.stroke.as_ref().unwrap();
-            let item = stroke.lookup(InputMode::Stroke, "mynote", true, None, &view.ranking)[0];
-            stroke.text(item, None).into_owned()
-        };
-        let original = store.dictionaries(InputMode::Stroke).unwrap();
-        assert_eq!(text(&original), "舊詞條");
-        std::fs::write(&custom, "...\n更新後詞條\tmynote\n").unwrap();
-        let updated = store.dictionaries(InputMode::Stroke).unwrap();
-        assert_eq!(text(&updated), "更新後詞條");
-        assert_eq!(text(&original), "舊詞條");
-        std::fs::write(&custom, "無效字庫").unwrap();
-        let fallback = store.dictionaries(InputMode::Stroke).unwrap();
-        assert!(Arc::ptr_eq(
-            updated.stroke.as_ref().unwrap(),
-            fallback.stroke.as_ref().unwrap()
-        ));
-        crate::tests::remove_fixture(&dir);
-    }
-
-    #[test]
     fn saved_changes_reload_and_invalid_intermediate_files_keep_the_last_good_table() {
         let dir = crate::tests::fixture_dir("dictionary-reload");
         let base = dir.join(DICTIONARY_FILES[0]);
@@ -319,7 +282,7 @@ mod tests {
 
         std::fs::write(
             &custom,
-            include_str!("../../assets/templates/custom.dict.yaml"),
+            include_str!("../../assets/templates/cangjie3_custom.dict.yaml"),
         )
         .unwrap();
         let dictionary = store.refresh().unwrap();
