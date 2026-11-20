@@ -1,0 +1,4 @@
+# 公用快照、初始範本及授權保留發佈時的原始位元組。
+assets/templates/** -text -whitespace
+data/** -text -whitespace
+licenses/** -text -whitespace

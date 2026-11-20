@@ -1,0 +1,5 @@
+opencc
+s2t
+jyutping
+ranking
+cangjie

@@ -1,0 +1,46 @@
+{
+  "description": "Frozen inputs for reproducible HK common-character ranking; original CUHK ranking is source data, not a Rime backup.",
+  "cifu_commit": "896ba8c84dddc43071cf3060ad05251b414a867e",
+  "suppchara_version": "1.8 (2022-09-06)",
+  "urls": [
+    "https://words.hk/faiman/analysis/charcount/",
+    "https://words.hk/faiman/analysis/charlist/",
+    "https://humanum.arts.cuhk.edu.hk/Lexis/chifreq/",
+    "https://github.com/gwinterstein/Cifu",
+    "https://github.com/ichitenfont/suppchara"
+  ],
+  "files": {
+    "Cifu-LICENSE": {
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+      "bytes": 35149
+    },
+    "Cifu-README.md": {
+      "sha256": "d9842fbc6b666429073bad3b1f4d4a4578d8ead61e99fe075c1113a95ffa0165",
+      "bytes": 1584
+    },
+    "Cifu-v1.txt": {
+      "sha256": "0508704fe094baa0b99c188f8ae8fd1874cfb52fe6e246b50f695f6cf788729d",
+      "bytes": 7859479
+    },
+    "cuhk-rank.txt": {
+      "sha256": "d23234d344c9812499e0aadb9b1b1a9aa857992701f0c4550344dc3170f3bde0",
+      "bytes": 18508
+    },
+    "suppchara-license.md": {
+      "sha256": "012e8d69bb57215a984cdc80c072b319024fdf34dc0fce48f87b0f9310d9226e",
+      "bytes": 885
+    },
+    "suppchara.txt": {
+      "sha256": "511bed084da0acbf6d8660bbcaad3ab0c07d5cbf01eca60a7008f1fd911f86fc",
+      "bytes": 17463
+    },
+    "wordshk-charcount.json": {
+      "sha256": "c0bf3bfebcf77b152626d132208b9262cb103510a9fb30b246c4e6eafecadba3",
+      "bytes": 88206
+    },
+    "wordshk-charlist.json": {
+      "sha256": "3f911df6b21c0fc7141a1aed722784e8bfef2f9b77c08ea487027f9010d99a8a",
+      "bytes": 169603
+    }
+  }
+}

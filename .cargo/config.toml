@@ -1,0 +1,8 @@
+[build]
+target-dir = "work/target"
+
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[alias]
+check-all = "check --all-targets --offline"

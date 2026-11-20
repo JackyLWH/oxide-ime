@@ -1,0 +1,12 @@
+# 每條 derive 會保留原讀音，並加入替換結果。規則依次套用。
+# 正則式套用於帶調粵拼（例如 ngo5）；替換可用 $1 等擷取群組。
+enabled: true
+rules:
+  - 'derive/^ng([aeiou])/$1/'
+  - 'derive/^([aeiou])/ng$1/'
+  - 'derive/^n(?!g)/l/'
+  - 'derive/n(?=\d)/ng/'
+  - 'derive/ng(?=\d)/n/'
+  - 'derive/t(?=\d)/k/'
+  - 'derive/k(?=\d)/t/'
+  # - 'derive/^(g|k)wo/$1o/'

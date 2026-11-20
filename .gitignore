@@ -1,0 +1,15 @@
+/work/
+/outputs/
+/backups/
+/data/logs/
+__pycache__/
+*.py[cod]
+/data/setting/.dictionary-update*
+/data/setting/.download
+/data/setting/.update-lock
+/data/setting/.oxide-*.tmp
+/data/setting/last-update.txt
+/data/setting/restart-programs.json
+/data/setting/.s2t-discord-sent.json
+/data/setting/discord-webhook.txt
+/data/setting/discord-webhook.txt.*.tmp

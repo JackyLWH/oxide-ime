@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<instrumentationManifest
+    xmlns="http://schemas.microsoft.com/win/2004/08/events"
+    xmlns:win="http://manifests.microsoft.com/win/2004/08/windows/events">
+  <instrumentation>
+    <events>
+      <provider name="OxideIme" guid="{9D7644E6-4F13-49A1-91CF-2F64C80C24B7}"
+          symbol="OxideImeEvents" resourceFileName="oxide-ime-maintenance.exe" messageFileName="oxide-ime-maintenance.exe">
+        <channels>
+          <channel name="OxideIme/Operational" chid="Operational" symbol="OxideImeOperational"
+              value="16" type="Operational" enabled="true">
+            <logging>
+              <retention>false</retention>
+              <maxSize>4194304</maxSize>
+            </logging>
+          </channel>
+          <channel name="OxideIme/Diagnostic" chid="Diagnostic" symbol="OxideImeDiagnostic"
+              value="17" type="Operational" enabled="false">
+            <logging>
+              <retention>false</retention>
+              <maxSize>4194304</maxSize>
+            </logging>
+          </channel>
+        </channels>
+        <templates>
+          <template tid="Record">
+            <data name="Release" inType="win:UnicodeString" />
+            <data name="Host" inType="win:UnicodeString" />
+            <data name="Component" inType="win:UnicodeString" />
+            <data name="Operation" inType="win:UnicodeString" />
+            <data name="Details" inType="win:UnicodeString" />
+          </template>
+        </templates>
+        <events>
+          <event value="1" symbol="OxideImeError" channel="Operational" level="win:Error"
+              template="Record" message="$(string.EventMessage)" />
+          <event value="2" symbol="OxideImeWarning" channel="Operational" level="win:Warning"
+              template="Record" message="$(string.EventMessage)" />
+          <event value="3" symbol="OxideImeInfo" channel="Operational" level="win:Informational"
+              template="Record" message="$(string.EventMessage)" />
+          <event value="4" symbol="OxideImeDetail" channel="Diagnostic" level="win:Informational"
+              template="Record" message="$(string.EventMessage)" />
+        </events>
+      </provider>
+    </events>
+  </instrumentation>
+  <localization>
+    <resources culture="en-US">
+      <stringTable>
+        <string id="EventMessage" value="Oxide IME %1 (%2), %3.%4, %5" />
+      </stringTable>
+    </resources>
+    <resources culture="zh-TW">
+      <stringTable>
+        <string id="EventMessage" value="Oxide IME %1（%2） %3.%4 %5" />
+      </stringTable>
+    </resources>
+  </localization>
+</instrumentationManifest>

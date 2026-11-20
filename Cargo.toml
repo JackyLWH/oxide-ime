@@ -1,0 +1,23 @@
+[package]
+name = "oxide-ime"
+version = "1.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "oxide_ime"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+csv = "1.4.0"
+fancy-regex = "0.16"
+num-rational = "0.4.2"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+yaml-rust2 = "0.10"
+
+[features]
+# 僅供自用安裝包啟用 Discord 設定及通知。
+private-discord = []
+# 僅供隔離整合測試，正式發行絕不啟用。
+integration-fixtures = []
