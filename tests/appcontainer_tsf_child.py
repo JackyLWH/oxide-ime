@@ -381,8 +381,8 @@ def main():
         check("F4 menu list", hr)
         count = t.DWORD()
         check("F4 option count", t.call(candidates, 9, [c.POINTER(t.DWORD)], c.byref(count)))
-        if count.value != 5:
-            raise RuntimeError("沙盒 F4 應與一般宿主顯示同樣五項設定")
+        if count.value != 6:
+            raise RuntimeError("沙盒 F4 應與一般宿主顯示同樣六項設定")
         value = t.PTR()
         check("F4 startup state", t.call(candidates, 11, [t.DWORD, t.PPTR], 2, c.byref(value)))
         actual = c.wstring_at(value, oleauto.SysStringLen(value))
@@ -424,6 +424,49 @@ def main():
     press(ord("2"))
     if store.content() != before_clipboard + "合成繁體\n第二行🙂":
         raise RuntimeError("有剪貼簿權限時，沙盒簡轉繁候選未完整上屏")
+
+    before = store.content()
+    press(0x73)
+    press(ord("6"))  # 倉頡 → 速成
+    press(0x73)
+    press(ord("O"))
+    press(ord("F"))
+    press(ord("1"))
+    assert store.content() == before + "你", "沙盒速成應經字庫服務查詢並上屏"
+
+    def check_shared_shortcut():
+        before = store.content()
+        for letter in "MYNOTE":
+            press(ord(letter))
+        writes = store.write_count
+        press(ord("1"))
+        expected = "跨方案測試詞\n第二行"
+        assert store.content() == before + expected and store.wrote_payload_once(writes, expected)
+
+    check_shared_shortcut()
+    before = store.content()
+    press(0x73)
+    press(ord("6"))  # 速成 → 筆劃
+    press(0x73)
+    press(ord("L"))
+    element = t.PTR()
+    check("Stroke UI element", t.call(ui_manager, 6, [t.DWORD, t.PPTR], ui_sink.opened[-1], c.byref(element)))
+    hr, candidates = t.query(element, t.guid("ea1ea138-19df-11d7-a6d2-00065b84435c"))
+    check("Stroke candidates", hr)
+    count = t.DWORD()
+    check("Full wildcard count", t.call(candidates, 9, [c.POINTER(t.DWORD)], c.byref(count)))
+    assert count.value > 100_000, f"通配首筆應涵蓋整份碼表，實際收到 {count.value} 個候選"
+    t.release(candidates)
+    t.release(element)
+    press(0x1B)
+    press(0x68)
+    press(ord("K"))
+    press(0x67)
+    press(0x67)
+    press(ord("1"))
+    assert store.content() == before + "日", "沙盒筆劃應經字庫服務查詢並上屏"
+    check_shared_shortcut()
+    print("PASS: 沙盒速成、筆劃通配、小鍵盤及共用長碼完整上屏。", flush=True)
 
     t.release(sink)
     check("unfocus", t.call(manager, 8, [t.PTR], None))

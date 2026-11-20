@@ -1,5 +1,6 @@
 //! 每個登入工作階段的即時模式，以及下次登入使用的預設值。
 use crate::{
+    dictionary::InputMode,
     project_files,
     win32::registry::{Key, HKCU},
 };
@@ -12,13 +13,16 @@ const SIMPLIFIED: u32 = 2;
 const STARTUP_ASCII: u32 = 4;
 const JYUTPING: u32 = 8;
 const EXACT: u32 = 16;
-const LIVE: u32 = ASCII | SIMPLIFIED | JYUTPING | EXACT;
+const INPUT_MODE_SHIFT: u32 = 5;
+const INPUT_MODE: u32 = 3 << INPUT_MODE_SHIFT;
+const LIVE: u32 = ASCII | SIMPLIFIED | JYUTPING | EXACT | INPUT_MODE;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Modes {
     pub ascii: bool,
     pub simplified: bool,
     pub startup_ascii: bool,
+    pub input_mode: InputMode,
     pub reverse_exact: Option<bool>,
 }
 
@@ -28,6 +32,8 @@ impl Modes {
             ascii: bits & ASCII != 0,
             simplified: bits & SIMPLIFIED != 0,
             startup_ascii: bits & STARTUP_ASCII != 0,
+            input_mode: InputMode::from_id(((bits & INPUT_MODE) >> INPUT_MODE_SHIFT) as u8)
+                .unwrap_or_default(),
             reverse_exact: (bits & (ASCII | JYUTPING) == JYUTPING).then_some(bits & EXACT != 0),
         }
     }
@@ -36,6 +42,7 @@ impl Modes {
         (u32::from(self.ascii) * ASCII)
             | (u32::from(self.simplified) * SIMPLIFIED)
             | (u32::from(self.startup_ascii) * STARTUP_ASCII)
+            | ((self.input_mode as u32) << INPUT_MODE_SHIFT)
             | self
                 .reverse_exact
                 .map_or(0, |exact| JYUTPING | (u32::from(exact) * EXACT))
@@ -49,17 +56,28 @@ pub(crate) enum ModeAction {
     ToggleAscii = 1,
     ToggleSimplification = 2,
     ToggleStartup = 3,
-    SetCangjie = 4,
+    ExitJyutping = 4,
     SetJyutping = 5,
     SetJyutpingExact = 6,
+    SetCangjie = 7,
+    SetQuick = 8,
+    SetStroke = 9,
 }
 
 impl ModeAction {
     pub(crate) fn for_reverse_mode(exact: Option<bool>) -> Self {
         match exact {
-            None => Self::SetCangjie,
+            None => Self::ExitJyutping,
             Some(false) => Self::SetJyutping,
             Some(true) => Self::SetJyutpingExact,
+        }
+    }
+
+    pub(crate) fn for_input_mode(mode: InputMode) -> Self {
+        match mode {
+            InputMode::Cangjie => Self::SetCangjie,
+            InputMode::Quick => Self::SetQuick,
+            InputMode::Stroke => Self::SetStroke,
         }
     }
 
@@ -68,9 +86,13 @@ impl ModeAction {
         match self {
             Self::ToggleAscii => (current ^ ASCII) & !reverse,
             Self::ToggleSimplification => current ^ SIMPLIFIED,
-            Self::SetCangjie => current & !reverse,
+            Self::ExitJyutping => current & !reverse,
             Self::SetJyutping if current & ASCII == 0 => (current & !reverse) | JYUTPING,
             Self::SetJyutpingExact if current & ASCII == 0 => current | reverse,
+            Self::SetCangjie | Self::SetQuick | Self::SetStroke => {
+                let index = u32::from((self as u8) - (Self::SetCangjie as u8));
+                (current & !(INPUT_MODE | reverse)) | (index << INPUT_MODE_SHIFT)
+            }
             _ => current,
         }
     }
@@ -85,9 +107,12 @@ impl TryFrom<u8> for ModeAction {
             1 => Ok(Self::ToggleAscii),
             2 => Ok(Self::ToggleSimplification),
             3 => Ok(Self::ToggleStartup),
-            4 => Ok(Self::SetCangjie),
+            4 => Ok(Self::ExitJyutping),
             5 => Ok(Self::SetJyutping),
             6 => Ok(Self::SetJyutpingExact),
+            7 => Ok(Self::SetCangjie),
+            8 => Ok(Self::SetQuick),
+            9 => Ok(Self::SetStroke),
             _ => Err("輸入模式操作無效".into()),
         }
     }
@@ -182,9 +207,25 @@ mod tests {
             fuzzy | STARTUP_ASCII
         );
         assert_eq!(Modes::from_bits(fuzzy).reverse_exact, Some(false));
-        assert_eq!(ModeAction::SetCangjie.update_live(fuzzy), SIMPLIFIED);
+        assert_eq!(ModeAction::ExitJyutping.update_live(fuzzy), SIMPLIFIED);
         let english = ModeAction::ToggleAscii.update_live(exact);
         assert_eq!(english, ASCII | SIMPLIFIED);
         assert_eq!(ModeAction::SetJyutping.update_live(english), english);
+    }
+
+    #[test]
+    fn chinese_input_scheme_survives_ascii_and_temporary_jyutping() {
+        let stroke = ModeAction::SetStroke.update_live(SIMPLIFIED);
+        let jyutping = ModeAction::SetJyutpingExact.update_live(stroke);
+        assert_eq!(Modes::from_bits(jyutping).input_mode, InputMode::Stroke);
+        assert_eq!(Modes::from_bits(jyutping).bits(), jyutping);
+        assert_eq!(ModeAction::ExitJyutping.update_live(jyutping), stroke);
+        let ascii = ModeAction::ToggleAscii.update_live(jyutping);
+        assert_eq!(Modes::from_bits(ascii).input_mode, InputMode::Stroke);
+        assert_eq!(Modes::from_bits(ascii).reverse_exact, None);
+        assert_eq!(ModeAction::ToggleAscii.update_live(ascii), stroke);
+        let quick = ModeAction::SetQuick.update_live(stroke);
+        assert_eq!(Modes::from_bits(quick).input_mode, InputMode::Quick);
+        assert_eq!(ModeAction::SetCangjie.update_live(quick), SIMPLIFIED);
     }
 }

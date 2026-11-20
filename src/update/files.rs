@@ -9,7 +9,7 @@ use std::ptr;
 
 use serde::{Deserialize, Serialize};
 
-use crate::public_data::{BUILD_TEMPLATES, CUSTOM_TEMPLATE, MAX_BYTES, TEMPLATES};
+use crate::public_data::{BUILD_TEMPLATES, CUSTOM_TEMPLATE, MAX_BYTES, STROKE_TEMPLATE, TEMPLATES};
 use crate::tsf::ffi::Raw;
 use crate::win32::wide;
 
@@ -116,9 +116,11 @@ pub(crate) fn register_initial_sources(
     } else {
         Baseline::read(data)?
     };
-    let (custom_name, custom_bytes) = CUSTOM_TEMPLATE;
+    let added = [CUSTOM_TEMPLATE, STROKE_TEMPLATE];
     if !fresh
-        && baseline.sha256.contains_key(custom_name)
+        && added
+            .iter()
+            .all(|(name, _)| baseline.sha256.contains_key(*name))
         && (templates.is_none()
             || BUILD_TEMPLATES
                 .iter()
@@ -136,10 +138,11 @@ pub(crate) fn register_initial_sources(
         baseline = Baseline::read(data)?;
         Some(guard)
     };
-    let mut sources = Vec::new();
-    if !baseline.sha256.contains_key(custom_name) {
-        sources.push((custom_name, Cow::Borrowed(custom_bytes)));
-    }
+    let mut sources: Vec<_> = added
+        .into_iter()
+        .filter(|(name, _)| !baseline.sha256.contains_key(*name))
+        .map(|(name, bytes)| (name, Cow::Borrowed(bytes)))
+        .collect();
     if let Some(templates) = templates {
         for name in BUILD_TEMPLATES {
             if !baseline.sha256.contains_key(name) {
@@ -175,7 +178,7 @@ fn read_table(path: &Path) -> io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
-pub(super) fn write_atomic(destination: &Path, contents: &[u8]) -> Result<(), String> {
+pub(crate) fn write_atomic(destination: &Path, contents: &[u8]) -> Result<(), String> {
     crate::project_files::replace_file(destination, contents)
         .map_err(|error| format!("{}：{error}", destination.display()))
 }

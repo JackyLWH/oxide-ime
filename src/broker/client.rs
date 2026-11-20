@@ -4,10 +4,12 @@ use std::time::{Duration, Instant};
 
 use super::pipe::{client_pipe_name, open_client, pipe_name, read_all, server_process, write_all};
 use super::protocol::{
-    decode_response, decode_single, read_u32, Operation, MAGIC, MAX_BODY, MAX_PREFIX, TIMEOUT,
+    decode_response, decode_single, read_u32, Operation, EXTENDED_MODES, LOOKUP_MODE_SHIFT, MAGIC,
+    MAX_BODY, MAX_PREFIX, RAW_STROKE_KEYS, TIMEOUT,
 };
 use super::{ModeAction, Modes};
 use crate::diagnostics::{self, Level, WarningLimit};
+use crate::dictionary::InputMode;
 use crate::project_files;
 
 fn request(
@@ -69,7 +71,7 @@ fn exchange(
     }
     let deadline = Instant::now()
         + if operation == Operation::Modes {
-            if flags == 0 {
+            if flags & !EXTENDED_MODES == 0 {
                 Duration::from_millis(30)
             } else {
                 Duration::from_millis(150)
@@ -120,6 +122,7 @@ pub(crate) struct RemoteCandidates {
 }
 
 pub(crate) fn lookup(
+    mode: InputMode,
     prefix: &str,
     limit: bool,
     simplified: bool,
@@ -130,13 +133,18 @@ pub(crate) fn lookup(
             previews: Vec::new(),
         });
     }
-    if prefix.is_empty() || !prefix.bytes().all(|byte| byte.is_ascii_lowercase()) {
+    if !mode.accepts_lookup(prefix.as_bytes()) {
         return Err("查字編碼無效".into());
+    }
+    let mut flags =
+        u8::from(limit) | (u8::from(simplified) << 1) | ((mode as u8) << LOOKUP_MODE_SHIFT);
+    if mode == InputMode::Stroke {
+        flags |= RAW_STROKE_KEYS;
     }
     let (count, body) = request(
         client_pipe_name()?,
         Operation::Lookup,
-        u8::from(limit) | (u8::from(simplified) << 1),
+        flags,
         prefix.as_bytes(),
     )?;
     let snapshot = u64::from_le_bytes(
@@ -190,9 +198,15 @@ fn mode_request(
     action: ModeAction,
     expected_pid: Option<u32>,
 ) -> Result<Modes, String> {
-    let (count, body) = request_from(name, Operation::Modes, action as u8, &[], expected_pid)?;
+    let (count, body) = request_from(
+        name,
+        Operation::Modes,
+        (action as u8) | EXTENDED_MODES,
+        &[],
+        expected_pid,
+    )?;
     match body.as_slice() {
-        [bits @ 0..=31] if count == 0 => Ok(Modes::from_bits(u32::from(*bits))),
+        [bits @ 0..=95] if count == 0 => Ok(Modes::from_bits(u32::from(*bits))),
         _ => Err("輸入模式狀態無效".into()),
     }
 }

@@ -355,13 +355,13 @@ def worker(dll_path, ui_less=False):
         hr, behavior = t.query(element, t.guid("85fad185-58ce-497a-9460-355366b64b9a"))
         t.checked("Query settings behavior", hr)
         t.checked("Get setting count", t.call(behavior, 9, [c.POINTER(t.DWORD)], c.byref(count)))
-        if count.value != 5:
-            raise RuntimeError("宿主未收到五項 F4 設定")
+        if count.value != 6:
+            raise RuntimeError("宿主未收到六項 F4 設定")
         oleauto = c.WinDLL("oleaut32")
         oleauto.SysStringLen.argtypes = [t.PTR]
         oleauto.SysStringLen.restype = t.ULONG
         oleauto.SysFreeString.argtypes = [t.PTR]
-        for index, name in enumerate(("字集", "繁簡", "預設輸入模式", "字形", "標點")):
+        for index, name in enumerate(("字集", "繁簡", "預設輸入模式", "字形", "標點", "輸入方案")):
             value = t.PTR()
             t.checked("Get setting", t.call(behavior, 11, [t.DWORD, t.PPTR], index, c.byref(value)))
             text = c.wstring_at(value, oleauto.SysStringLen(value))
@@ -376,7 +376,6 @@ def worker(dll_path, ui_less=False):
         t.release(behavior)
         t.release(element)
         press(0x73)
-        t.release(ui_manager)
         print("PASS: 真實 TSF UIElement 管理員與無介面宿主完成選字及取消。", flush=True)
     else:
         reference = Rect()
@@ -511,6 +510,44 @@ def worker(dll_path, ui_less=False):
         assert store.content() == before
         print("PASS: 拒絕第一次同步鎖後，TSF 重試一次並恢復候選。", flush=True)
 
+    before = store.content()
+    press(0x73)
+    press(0x36)  # 倉頡 → 速成
+    press(0x73)
+    press(ord("O"))
+    press(ord("F"))
+    if ui_less:
+        element = t.PTR()
+        t.checked("Get Quick candidates", t.call(ui_manager, 6, [t.DWORD, t.PPTR], ui_sink.opened[-1], c.byref(element)))
+        hr, behavior = t.query(element, t.guid("85fad185-58ce-497a-9460-355366b64b9a"))
+        t.checked("Query Quick candidate behavior", hr)
+        pages = (t.DWORD * 2)()
+        count = t.DWORD()
+        t.checked("Quick pages", t.call(behavior, 12, [c.POINTER(t.DWORD), t.DWORD, c.POINTER(t.DWORD)], pages, 2, c.byref(count)))
+        assert (list(pages), count.value) == ([0, 9], 2)
+        t.checked("Select second Quick page", t.call(behavior, 15, [t.DWORD], 9))
+        t.checked("Finalize Quick candidate", t.call(behavior, 16, []))
+        t.release(behavior)
+        t.release(element)
+        t.release(ui_manager)
+        assert store.content() == before + "第十个自订候选\n第二行", store.content()[len(before):]
+    else:
+        label = c.create_unicode_buffer(512)
+        u.GetWindowTextW(candidate_window(), label, len(label))
+        assert "9. 加長候選..." in label.value
+        press(ord("9"))
+        assert store.content() == before + "加長候選文字"
+    before = store.content()
+    press(0x73)
+    press(0x36)  # 速成 → 筆劃
+    press(0x73)
+    for key in (0x69, ord("I"), ord("O"), 0x66, 0x65, 0x69, 0x64):
+        press(key)
+    assert store.content() == before + "丿丨丿＊乛丿丶"
+    press(ord("1"))
+    assert store.content() == before + "你"
+    print("PASS: 速成九候選、完整詞條上屏及筆劃小鍵盤通配。", flush=True)
+
     t.release(sink)
     t.checked("Deactivate text service", t.call(processor, 4, []))
     if source:
@@ -565,8 +602,16 @@ def main():
         dictionaries = root / "data" / "dictionaries"
         dictionaries.mkdir(parents=True)
         (root / "outputs").mkdir()
-        (dictionaries / "cangjie3.dict.yaml").write_text("---\n...\n日\ta\n曰\ta\n", encoding="utf-8")
-        (dictionaries / "custom.dict.yaml").write_text("---\n...\n" + "長" * 30 + "\\n第二行\tzzz\n", encoding="utf-8")
+        (dictionaries / "cangjie3.dict.yaml").write_text(
+            "---\n...\n日\ta\n曰\ta\n你\tonf\n他\tof\n另\tonf\n吾\tonf\n仰\tonf\n任\tonf\n伙\tonf\n件\tonf\n",
+            encoding="utf-8",
+        )
+        (dictionaries / "custom.dict.yaml").write_text(
+            "---\n...\n" + "長" * 30 + "\\n第二行\tzzz\n加長候選文字\tof\n第十個自訂候選\\n第二行\tofb\n",
+            encoding="utf-8",
+        )
+        (dictionaries / "common-rank.txt").write_text("你\n", encoding="utf-8")
+        (dictionaries / "stroke.dict.yaml").write_text("...\n你\tpspzzpn\n", encoding="utf-8")
         # 固定第一候選，將公用字庫的排序驗證留給實際字庫測試。
         (dictionaries / "jyut6ping3.chars.dict.csv.json").write_text('{"我":{"ngo5":"預設"}}', encoding="utf-8")
         dll = root / "outputs" / "rust_ime_fixture.dll"

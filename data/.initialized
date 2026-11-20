@@ -13,6 +13,7 @@
     "s2t/custom.json": "c59588557d71b9861aefe6a8d74641fec94522ea1980fbcfc4a805cb62e9d921",
     "s2t/s2t-char.min.json": "413d6cce12aee19c6007763841aaaf9afc1ac81c2746dad5b3426ca050a3b3ae",
     "s2t/s2t-phrase.min.json": "9b4658bd07a117f16fe2f5dfdc5fc7e7a401da3c7bfe1b680a0a57aeea85ad3d",
+    "stroke.dict.yaml": "b3e93dce89c185f45c3d6e189b86b3a8626913352cc85e1094c786579a665791",
     "t2s/TSCharacters.txt": "ebc0e9847905bc9909e1ac1cc93e312ef73117e679a97fb06b9285b67583f263",
     "t2s/TSPhrases.txt": "a69ad0ccd6affdb8c4d7c325cc22d935db2000a7a46db5640e403816b95bbca7"
   }

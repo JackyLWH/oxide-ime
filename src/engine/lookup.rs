@@ -2,7 +2,7 @@
 use super::{
     preview, Command, HomophoneAnchor, HomophoneFrame, HomophoneSelection, Match, Session,
 };
-use crate::dictionary::allowed_text;
+use crate::dictionary::{allowed_text, InputMode};
 use std::{borrow::Cow, collections::HashSet, sync::Arc};
 
 impl Session {
@@ -121,9 +121,9 @@ impl Session {
                 if let Some(converter) = self.converter() {
                     converter
                         .candidate_forms(source)
-                        .any(|form| preview(&form) == value.as_ref())
+                        .any(|form| preview(&form, InputMode::Cangjie) == value.as_ref())
                 } else {
-                    preview(source) == value.as_ref()
+                    preview(source, InputMode::Cangjie) == value.as_ref()
                 }
             }
             _ => false,
@@ -190,7 +190,15 @@ impl Session {
     }
 
     pub(super) fn match_display(&self, item: &Match) -> String {
-        let mut text = preview(&self.match_text(item));
+        if let Match::Remote { preview, .. } = item {
+            return preview.to_string();
+        }
+        let mode = if self.reverse_exact.is_some() {
+            InputMode::Cangjie
+        } else {
+            self.input_mode
+        };
+        let mut text = preview(&self.match_text(item), mode);
         let comment = match item {
             Match::Homophone { comment, .. } => comment.as_ref(),
             Match::Generated { comment, .. } => comment,
@@ -246,8 +254,14 @@ impl Session {
         if raw.is_empty() {
             return Vec::new();
         }
+        let mode = self.input_mode;
         if let Some(dictionaries) = &self.dictionaries {
-            let entries = dictionaries.cangjie.lookup(
+            let Some(dictionary) = dictionaries.table(mode) else {
+                self.lookup_failed = true;
+                return Vec::new();
+            };
+            let entries = dictionary.lookup(
+                mode,
                 raw,
                 self.limit_chars,
                 self.converter(),
@@ -261,7 +275,8 @@ impl Session {
                 })
                 .collect();
         }
-        let Ok(entries) = crate::broker::lookup(raw, self.limit_chars, self.simplification) else {
+        let Ok(entries) = crate::broker::lookup(mode, raw, self.limit_chars, self.simplification)
+        else {
             self.lookup_failed = true;
             return Vec::new();
         };

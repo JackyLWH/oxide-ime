@@ -13,9 +13,12 @@ use super::pipe::{
     client_process, connect, create_pipe, create_stop_event, make_security, open_anchor, pipe_name,
     project_id, read_all, request_stop, stopped, write_all, Raw,
 };
-use super::protocol::{add_text, read_u32, Operation, MAGIC, MAX_BODY, MAX_COUNT, MAX_PREFIX};
+use super::protocol::{
+    add_text, read_u32, Operation, EXTENDED_MODES, LOOKUP_MODE_SHIFT, MAGIC, MAX_BODY, MAX_COUNT,
+    MAX_PREFIX, RAW_STROKE_KEYS,
+};
 use crate::diagnostics::{self, Level, WarningLimit};
-use crate::dictionary::{Dictionary, DictionaryMatch, DictionaryStore};
+use crate::dictionary::{Dictionary, DictionaryMatch, DictionaryStore, InputMode};
 use crate::engine::preview;
 use crate::project_files;
 use crate::simplify::{self, Converter};
@@ -81,6 +84,7 @@ impl BrokerState {
         client: &Client,
         code: &str,
         flags: u8,
+        mode: InputMode,
         with_commands: bool,
         body: &mut Vec<u8>,
     ) -> Result<usize, String> {
@@ -88,10 +92,11 @@ impl BrokerState {
             .dictionary
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .dictionaries()?;
-        let dictionary = dictionaries.cangjie;
+            .dictionaries(mode)?;
+        let dictionary = dictionaries.table(mode).ok_or("無法讀取筆劃字庫")?.clone();
         let converter = (flags & 2 != 0).then(simplify::current);
         let mut matches = dictionary.lookup(
+            mode,
             code,
             flags & 1 != 0,
             converter.as_deref(),
@@ -111,7 +116,7 @@ impl BrokerState {
             if dictionary.command(item).is_some() {
                 add_text(body, &value)?;
             } else {
-                add_text(body, &preview(&value))?;
+                add_text(body, &preview(&value, mode))?;
             }
         }
         if count > 0 {
@@ -230,11 +235,40 @@ fn handle_client(pipe: OwnedHandle, state: Arc<BrokerState>) -> Result<(), Strin
     );
     let mut body = Vec::new();
     let count = match operation {
-        LegacyLookup | Lookup
-            if flags & !3 == 0 && length > 0 && payload.iter().all(u8::is_ascii_lowercase) =>
-        {
+        LegacyLookup | Lookup => {
+            let raw_stroke_keys = flags & RAW_STROKE_KEYS != 0;
+            let mode = InputMode::from_id((flags & !RAW_STROKE_KEYS) >> LOOKUP_MODE_SHIFT)
+                .filter(|mode| {
+                    if raw_stroke_keys {
+                        operation == Lookup
+                            && *mode == InputMode::Stroke
+                            && mode.accepts_lookup(&payload)
+                    } else {
+                        (operation == Lookup || *mode == InputMode::Cangjie)
+                            && mode.accepts_code(&payload)
+                    }
+                })
+                .ok_or("查字編碼無效")?;
             let code = std::str::from_utf8(&payload).map_err(|_| "查字編碼無效")?;
-            state.lookup(&client, code, flags, operation == Lookup, &mut body)?
+            let code = if mode == InputMode::Stroke && !raw_stroke_keys {
+                // 舊 DLL 送出碼表符號。用等價的小鍵盤編碼查原筆劃候選。
+                Cow::Owned(
+                    code.bytes()
+                        .map(|byte| match byte {
+                            b'h' => '7',
+                            b's' => '8',
+                            b'p' => '9',
+                            b'n' => '4',
+                            b'z' => '5',
+                            b'*' => '6',
+                            _ => unreachable!("筆劃碼已驗證"),
+                        })
+                        .collect::<String>(),
+                )
+            } else {
+                Cow::Borrowed(code)
+            };
+            state.lookup(&client, &code, flags, mode, operation == Lookup, &mut body)?
         }
         Resolve | ReverseMatch
             if length == 12 && (flags == 0 || (operation == Resolve && flags == 1)) =>
@@ -287,12 +321,14 @@ fn handle_client(pipe: OwnedHandle, state: Arc<BrokerState>) -> Result<(), Strin
             1
         }
         Modes if length == 0 => {
+            let extended = flags & EXTENDED_MODES != 0;
             let value = state
                 .modes
                 .lock()
                 .unwrap_or_else(|err| err.into_inner())
-                .apply(ModeAction::try_from(flags)?)?;
-            body.push(value.bits() as u8);
+                .apply(ModeAction::try_from(flags & !EXTENDED_MODES)?)?;
+            // 舊版 DLL 仍在宿主中時，只向它回傳原有的五個位元。
+            body.push((value.bits() as u8) & if extended { 0x7f } else { 0x1f });
             0
         }
         Jyutping | Homophones if length > 0 => {

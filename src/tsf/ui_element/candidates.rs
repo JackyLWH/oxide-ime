@@ -3,7 +3,7 @@ use std::ptr;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use super::Registration;
-use crate::engine::{Session, PAGE_SIZE};
+use crate::engine::Session;
 use crate::tsf::ffi::{
     self, CandidateUiVtbl, ComPtr, ContextFullVtbl, Guid, HResult, Raw, UnknownVtbl,
 };
@@ -137,10 +137,16 @@ impl CandidateUi {
             return false;
         }
         let unchanged = (*element).snapshot.as_ref().is_some_and(|previous| {
-            previous.ui_count() == count && previous.menu_open == snapshot.menu_open
+            previous.ui_count() == count
+                && previous.menu_open == snapshot.menu_open
+                && previous.page_size() == snapshot.page_size()
         });
         if !unchanged || (*element).pages.is_empty() {
-            let step = if snapshot.menu_open { count } else { PAGE_SIZE };
+            let step = if snapshot.menu_open {
+                count
+            } else {
+                snapshot.page_size()
+            };
             (*element).pages.clear();
             (*element)
                 .pages

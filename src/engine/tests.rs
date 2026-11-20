@@ -17,11 +17,7 @@ fn chinese() -> Session {
 
 #[test]
 fn original_order_completion_filter_and_paging() {
-    let mut session = Session::local(Dictionaries {
-        cangjie: dictionary(),
-        ranking: Arc::new(Ranking::parse("昍\n曰\n昌\n").unwrap()),
-    });
-    session.handle(Key::ToggleMode);
+    let mut session = chinese();
     assert_eq!(
         session.handle(Key::Letter('a')).edit,
         Edit::Preedit("日".into())
@@ -44,18 +40,167 @@ fn original_order_completion_filter_and_paging() {
             .iter()
             .map(|c| c.text.as_str())
             .collect::<Vec<_>>(),
-        ["昍", "昌"]
+        ["昌", "昍"]
     );
     assert_eq!(
         session.handle(Key::Select(1)).edit,
-        Edit::Commit("昌".into())
+        Edit::Commit("昍".into())
     );
     assert!(!session.is_composing());
     assert!(!session
         .local_dictionary()
-        .lookup("ac", true, None, &Ranking::default())
+        .lookup(InputMode::Cangjie, "ac", true, None, &Ranking::default())
         .iter()
         .any(|&i| session.local_dictionary().text(i, None) == "𠀀"));
+}
+
+#[test]
+fn cangjie_keeps_exact_table_order_and_ranks_predictions_before_deduplication() {
+    let dictionary = Dictionary::parse([(
+        "test",
+        "...\n冉\tabc\n苒\taz\n會\ta\n我\ta\n人\tac\n好\tad\n我\tab\n",
+    )])
+    .unwrap();
+    let ranking = Ranking::parse("我\n好\n人\n會\n").unwrap();
+    let matches = dictionary.lookup(InputMode::Cangjie, "a", true, None, &ranking);
+    let result: Vec<_> = matches
+        .iter()
+        .map(|&item| dictionary.text(item, None))
+        .collect();
+    assert_eq!(result, ["會", "我", "好", "人", "冉", "苒"]);
+}
+
+#[test]
+fn quick_uses_both_tables_and_commits_page_two_in_full() {
+    let base = "...\n吧\to\n你\tonf\n他\tof\n但\toabf\n倆\toakf\n俄\tohqf\n仁\toaxf\n代\toif\n件\tohqdf\n任\tohgf\n";
+    let custom = "...\n自訂長文超過四字\\n下一行\tofextra\n你\tof\n__rime_time__\tztime\n";
+    let dictionary = Arc::new(Dictionary::parse([("base", base), ("custom", custom)]).unwrap());
+    let ranking = Arc::new(Ranking::parse("你\n他\n任\n").unwrap());
+    let mut session = Session::local(Dictionaries {
+        cangjie: dictionary,
+        stroke: None,
+        ranking,
+    });
+    session.handle(Key::ToggleMode);
+    session.handle(Key::Menu);
+    session.handle(Key::Select(5));
+    assert_eq!(session.switch_items()[5].state, "速成");
+    session.handle(Key::Menu);
+
+    session.handle(Key::Letter('o'));
+    assert_eq!(session.ui_text(0).as_deref(), Some("吧"));
+    assert_eq!(session.ui_text(1).as_deref(), Some("你"));
+    session.handle(Key::Letter('f'));
+    assert_eq!(session.candidates().len(), 9);
+    assert_eq!(session.ui_text(2).as_deref(), Some("任"));
+    assert!(!session.candidates().last().unwrap().selected);
+    for _ in 0..9 {
+        session.handle(Key::Next);
+    }
+    assert_eq!(session.page(), 1);
+    assert_eq!(session.candidates()[0].text, "自訂長文...");
+    assert_eq!(
+        session.handle(Key::Select(0)).edit,
+        Edit::CommitCandidate("自訂長文超過四字\n下一行".into())
+    );
+    session.handle(Key::ToggleJyutping);
+    assert_eq!(session.page_size(), 2);
+    session.handle(Key::ToggleJyutping);
+    assert_eq!(session.input_mode, InputMode::Quick);
+}
+
+#[test]
+fn stroke_wildcard_matches_exactly_one_stroke_and_ranks_exact_then_predictions() {
+    let cangjie = dictionary();
+    let stroke = Arc::new(
+        Dictionary::parse_stroke(
+            "...\n三\thhh\n十\ths\n二\thh\n一\th\n主\tnhhsh\n本\thspnh\n丿\tp\n",
+            &cangjie,
+        )
+        .unwrap(),
+    );
+    let ranking = Arc::new(Ranking::parse("本\n二\n十\n三\n一\n").unwrap());
+    let mut session = Session::local(Dictionaries {
+        cangjie,
+        stroke: Some(stroke),
+        ranking,
+    });
+    session.handle(Key::ToggleMode);
+    session.handle(Key::Menu);
+    session.handle(Key::Select(5));
+    session.handle(Key::Select(5));
+    assert_eq!(session.switch_items()[5].state, "筆劃");
+    session.handle(Key::Menu);
+    assert_eq!(
+        session.handle(Key::Letter('u')).edit,
+        Edit::Preedit("一".into())
+    );
+    assert_eq!(session.ui_text(0).as_deref(), Some("一"));
+    assert_eq!(
+        session.handle(Key::Numpad('6')).edit,
+        Edit::Preedit("一＊".into())
+    );
+    let view: Vec<_> = session
+        .candidates()
+        .into_iter()
+        .map(|item| item.text)
+        .collect();
+    assert_eq!(view, ["二", "十", "本", "三"]);
+    assert_eq!(
+        session.handle(Key::Letter('h')).edit,
+        Edit::Preedit("u6h".into())
+    );
+    assert_eq!(
+        session.handle(Key::Backspace).edit,
+        Edit::Preedit("一＊".into())
+    );
+    assert_eq!(session.handle(Key::Enter).edit, Edit::Commit("u6".into()));
+
+    session.handle(Key::Numpad('7'));
+    session.handle(Key::Letter('l'));
+    session.handle(Key::Numpad('7'));
+    assert_eq!(session.ui_count(), 1);
+    assert_eq!(session.handle(Key::Space).edit, Edit::Commit("三".into()));
+}
+
+#[test]
+fn shared_shortcuts_keep_their_full_codes_in_every_scheme() {
+    let base = "...\n你\tonf\n書\tmynote\n";
+    let custom = "...\n自訂長文\\n第二行\tmynote\n共用筆劃\tui\n個人通配\tl\n";
+    let cangjie = Arc::new(Dictionary::parse([("base", base), ("custom", custom)]).unwrap());
+    let stroke = Arc::new(Dictionary::parse_stroke("...\n十\ths\n工\thsh\n", &cangjie).unwrap());
+    let ranking = Arc::new(Ranking::parse("工\n十\n書\n你\n").unwrap());
+    let view = Dictionaries {
+        cangjie,
+        stroke: Some(stroke),
+        ranking,
+    };
+    for mode in [InputMode::Cangjie, InputMode::Quick, InputMode::Stroke] {
+        let mut session = Session::local(view.clone());
+        session.ascii_mode = false;
+        session.input_mode = mode;
+        for key in "mynote".chars() {
+            assert!(session.handle(Key::Letter(key)).handled);
+        }
+        let index = if mode == InputMode::Cangjie { 1 } else { 0 };
+        assert_eq!(
+            session.handle(Key::Select(index)).edit,
+            Edit::CommitCandidate("自訂長文\n第二行".into())
+        );
+    }
+    let texts = |mode, code| {
+        let table = view.table(mode).unwrap();
+        table
+            .lookup(mode, code, true, None, &view.ranking)
+            .into_iter()
+            .map(|item| table.text(item, None).into_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(texts(InputMode::Quick, "of"), ["你"]);
+    assert_eq!(texts(InputMode::Stroke, "ui"), ["十", "共用筆劃", "工"]);
+    assert_eq!(texts(InputMode::Stroke, "78"), ["十", "工"]);
+    assert!(texts(InputMode::Stroke, "l").contains(&"個人通配".to_owned()));
+    assert!(!texts(InputMode::Stroke, "6").contains(&"個人通配".to_owned()));
 }
 
 #[test]
@@ -99,22 +244,20 @@ fn multiline_is_not_truncated_when_selected() {
 }
 
 #[test]
-fn real_dictionary_keeps_exact_matches_before_ranked_completions() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("data/dictionaries")
-        .join(DICTIONARY_FILES[0]);
-    let base = std::fs::read_to_string(path).unwrap();
+fn real_dictionary_keeps_exact_order_and_ranks_completions() {
+    let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/templates");
+    let base = std::fs::read_to_string(directory.join(DICTIONARY_FILES[0])).unwrap();
     let dictionary = Dictionary::parse([(DICTIONARY_FILES[0], base.as_str())]).unwrap();
+    let ranking = Ranking::parse(crate::public_data::INITIAL_RANKING).unwrap();
     let expected: HashMap<&str, [&str; 2]> = HashMap::from([
         ("a", ["日", "曰"]),
         ("aa", ["昌", "昍"]),
         ("ab", ["明", "冐"]),
         ("b", ["月", "同"]),
     ]);
-    let ranking = Ranking::parse(crate::public_data::INITIAL_RANKING).unwrap();
     for (code, texts) in expected {
         let found = dictionary
-            .lookup(code, true, None, &ranking)
+            .lookup(InputMode::Cangjie, code, true, None, &ranking)
             .iter()
             .take(2)
             .map(|&i| dictionary.text(i, None))
@@ -132,7 +275,13 @@ fn lookup_keeps_order_when_duplicates_come_from_different_codes_and_tables() {
     let results = |simplified: bool| {
         let simplified = simplified.then_some(converter.as_ref());
         dictionary
-            .lookup("a", true, simplified, &Ranking::default())
+            .lookup(
+                InputMode::Cangjie,
+                "a",
+                true,
+                simplified,
+                &Ranking::default(),
+            )
             .into_iter()
             .map(|index| dictionary.text(index, simplified))
             .collect::<Vec<_>>()
@@ -146,7 +295,13 @@ fn simplified_candidates_keep_multiple_forms_and_their_original_source() {
     let table = "---\n...\n钁\ta\n鐝\tab\n";
     let dictionary = Dictionary::parse([("test", table)]).unwrap();
     let converter = crate::simplify::current();
-    let matches = dictionary.lookup("a", true, Some(&converter), &Ranking::default());
+    let matches = dictionary.lookup(
+        InputMode::Cangjie,
+        "a",
+        true,
+        Some(&converter),
+        &Ranking::default(),
+    );
     assert_eq!(
         matches
             .iter()
@@ -182,10 +337,10 @@ fn f4_switches_filter_and_only_converts_in_simplified_mode() {
             .iter()
             .map(|item| item.name)
             .collect::<Vec<_>>(),
-        ["字集", "繁簡", "預設輸入模式", "字形", "標點"]
+        ["字集", "繁簡", "預設輸入模式", "字形", "標點", "輸入方案"]
     );
-    assert_eq!(session.ui_count(), 5);
-    assert!(session.ui_set_selection(5).is_none());
+    assert_eq!(session.ui_count(), 6);
+    assert!(session.ui_set_selection(6).is_none());
     session.handle(Key::Select(2));
     assert!(!session.startup_ascii);
     assert!(!session.ascii_mode);
@@ -613,7 +768,7 @@ fn dynamic_command_candidates_match_isolated_rime() {
             .map(|item| session.match_text(item).into_owned())
             .collect();
         if code == "z" {
-            // 字碼補全改按常用字及原碼表次序，候選內容維持一致。
+            // 新版依碼表與常用字排序，保留同一批候選。
             let mut actual = actual;
             let mut expected = expected.to_vec();
             actual.sort();

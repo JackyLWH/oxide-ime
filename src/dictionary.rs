@@ -1,4 +1,5 @@
-//! 倉頡碼表的解析、排序及候選文字。
+//! 倉頡、速成與筆劃的碼表索引及候選排序。
+mod mode;
 mod store;
 
 use crate::commands::Command;
@@ -10,16 +11,39 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
+pub(crate) use mode::{stroke_key, InputMode};
 pub(crate) use store::{Dictionaries, DictionaryStore};
 
 pub(crate) const DICTIONARY_FILES: [&str; 2] = [CANGJIE, CUSTOM];
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct Entry {
     code: String,
     text: String,
     allowed_in_hong_kong: bool,
     custom: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LookupKind {
+    Cangjie,
+    Quick,
+    Stroke,
+    Shortcut,
+}
+
+impl Entry {
+    fn quick(&self) -> [u8; 2] {
+        let code = self.code.as_bytes();
+        [
+            code[0],
+            if code.len() == 1 {
+                0
+            } else {
+                code[code.len() - 1]
+            },
+        ]
+    }
 }
 
 #[derive(Default)]
@@ -73,6 +97,9 @@ pub(crate) struct DictionaryMatch {
 pub(crate) struct Dictionary {
     entries: Vec<Entry>,
     by_code: Vec<usize>,
+    by_shortcut: Vec<usize>,
+    by_quick: OnceLock<Vec<usize>>,
+    max_code_len: usize,
 }
 
 impl Dictionary {
@@ -103,6 +130,26 @@ impl Dictionary {
     pub(crate) fn parse<'a>(
         tables: impl IntoIterator<Item = (&'a str, &'a str)>,
     ) -> Result<Self, String> {
+        Self::parse_tables(tables, InputMode::Cangjie, &[])
+    }
+
+    pub(crate) fn parse_stroke(source: &str, cangjie: &Self) -> Result<Self, String> {
+        Self::parse_tables(
+            [(crate::public_data::STROKE, source)],
+            InputMode::Stroke,
+            cangjie.custom_entries(),
+        )
+    }
+
+    fn custom_entries(&self) -> &[Entry] {
+        &self.entries[self.entries.partition_point(|entry| !entry.custom)..]
+    }
+
+    fn parse_tables<'a>(
+        tables: impl IntoIterator<Item = (&'a str, &'a str)>,
+        mode: InputMode,
+        shortcuts: &[Entry],
+    ) -> Result<Self, String> {
         let mut entries = Vec::new();
         for (table, (name, source)) in tables.into_iter().enumerate() {
             let mut in_body = false;
@@ -120,10 +167,7 @@ impl Dictionary {
                     invalid_row(table, line_number + 1, 1);
                     return Err(format!("{name} 第 {} 行缺少編碼欄位", line_number + 1));
                 };
-                if text.is_empty()
-                    || code.is_empty()
-                    || !code.bytes().all(|b| b.is_ascii_lowercase())
-                {
+                if text.is_empty() || !mode.accepts_code(code.as_bytes()) || code.contains('*') {
                     invalid_row(table, line_number + 1, 2);
                     return Err(format!("{name} 第 {} 行的詞條或編碼無效", line_number + 1));
                 }
@@ -139,47 +183,172 @@ impl Dictionary {
                 return Err(format!("{name} 缺少字庫表頭結束標記"));
             }
         }
+        entries.extend_from_slice(shortcuts);
         Ok(Self::index(entries))
     }
 
     fn index(entries: Vec<Entry>) -> Self {
         let mut by_code: Vec<_> = (0..entries.len()).collect();
         by_code.sort_unstable_by(|&left, &right| entries[left].code.cmp(&entries[right].code));
-        Self { entries, by_code }
+        let by_shortcut = by_code
+            .iter()
+            .copied()
+            .filter(|&index| entries[index].custom)
+            .collect();
+        let max_code_len = entries
+            .iter()
+            .map(|entry| entry.code.len())
+            .max()
+            .unwrap_or(0);
+        Self {
+            entries,
+            by_code,
+            by_shortcut,
+            by_quick: OnceLock::new(),
+            max_code_len,
+        }
     }
 
     pub(crate) fn lookup(
         &self,
+        mode: InputMode,
         prefix: &str,
         limit_chars: bool,
         converter: Option<&Converter>,
         ranking: &Ranking,
     ) -> Vec<DictionaryMatch> {
-        if prefix.is_empty() || !prefix.bytes().all(|byte| byte.is_ascii_lowercase()) {
+        if !mode.accepts_lookup(prefix.as_bytes()) || prefix.len() > self.max_code_len {
             return Vec::new();
         }
-        let start = self
-            .by_code
-            .partition_point(|&index| self.entries[index].code.as_str() < prefix);
-        let mut ordered: Vec<_> = self.by_code[start..]
-            .iter()
-            .copied()
-            .take_while(|&index| self.entries[index].code.starts_with(prefix))
-            .filter_map(|index| {
-                let entry = &self.entries[index];
-                if limit_chars && !entry.allowed_in_hong_kong {
-                    return None;
+        let mut ordered = Vec::new();
+        match mode {
+            InputMode::Cangjie => {
+                self.append_ordered(
+                    &mut ordered,
+                    LookupKind::Cangjie,
+                    prefix,
+                    limit_chars,
+                    ranking,
+                );
+            }
+            InputMode::Quick => {
+                if prefix.len() <= 2 {
+                    self.append_ordered(
+                        &mut ordered,
+                        LookupKind::Quick,
+                        prefix,
+                        limit_chars,
+                        ranking,
+                    );
                 }
-                let completion = entry.code != prefix;
-                let rank = if completion {
-                    ranking.rank(&entry.text)
-                } else {
-                    0
-                };
-                Some((completion, rank, index))
+                self.append_ordered(
+                    &mut ordered,
+                    LookupKind::Shortcut,
+                    prefix,
+                    limit_chars,
+                    ranking,
+                );
+            }
+            InputMode::Stroke => {
+                let strokes: Option<String> = prefix
+                    .chars()
+                    .map(|key| stroke_key(key).map(|(code, _)| code))
+                    .collect();
+                if let Some(strokes) = strokes {
+                    self.append_ordered(
+                        &mut ordered,
+                        LookupKind::Stroke,
+                        &strokes,
+                        limit_chars,
+                        ranking,
+                    );
+                }
+                if prefix.bytes().all(|byte| byte.is_ascii_lowercase()) {
+                    self.append_ordered(
+                        &mut ordered,
+                        LookupKind::Shortcut,
+                        prefix,
+                        limit_chars,
+                        ranking,
+                    );
+                }
+            }
+        }
+        self.render_matches(ordered, converter)
+    }
+
+    fn append_ordered(
+        &self,
+        ordered: &mut Vec<(bool, usize, usize)>,
+        kind: LookupKind,
+        prefix: &str,
+        limit_chars: bool,
+        ranking: &Ranking,
+    ) {
+        let indices = if kind == LookupKind::Quick {
+            let quick = self.by_quick.get_or_init(|| {
+                let mut quick: Vec<_> = (0..self.entries.len())
+                    .filter(|&index| {
+                        let entry = &self.entries[index];
+                        !entry.custom && Command::from_marker(&entry.text).is_none()
+                    })
+                    .collect();
+                quick.sort_unstable_by_key(|&index| self.entries[index].quick());
+                quick
+            });
+            prefix_indices(quick, prefix.as_bytes(), |index| {
+                self.entries[index].quick()
             })
-            .collect();
-        // 完整匹配和同排名的候選依原碼表序號排列。
+        } else {
+            let literal = prefix.split_once('*').map_or(prefix, |(start, _)| start);
+            let index = if kind == LookupKind::Shortcut {
+                &self.by_shortcut
+            } else {
+                &self.by_code
+            };
+            prefix_indices(index, literal.as_bytes(), |index| {
+                self.entries[index].code.as_bytes()
+            })
+        };
+        ordered.reserve(indices.len());
+        for &index in indices {
+            let entry = &self.entries[index];
+            if limit_chars && !entry.allowed_in_hong_kong {
+                continue;
+            }
+            if kind == LookupKind::Stroke && entry.custom {
+                continue;
+            }
+            let code_len = if kind == LookupKind::Quick {
+                entry.code.len().min(2)
+            } else {
+                entry.code.len()
+            };
+            if kind == LookupKind::Stroke
+                && (code_len < prefix.len()
+                    || !prefix
+                        .bytes()
+                        .zip(entry.code.bytes())
+                        .all(|(input, stroke)| input == b'*' || input == stroke))
+            {
+                continue;
+            }
+            let prediction = code_len != prefix.len();
+            let rank = if prediction || kind != LookupKind::Cangjie {
+                ranking.rank(&entry.text)
+            } else {
+                0
+            };
+            ordered.push((prediction, rank, index));
+        }
+    }
+
+    fn render_matches(
+        &self,
+        mut ordered: Vec<(bool, usize, usize)>,
+        converter: Option<&Converter>,
+    ) -> Vec<DictionaryMatch> {
+        // 用原碼表序號作最後比較，並在排序後去重，確保完整匹配優先。
         ordered.sort_unstable();
         let mut seen = HashSet::new();
         let mut result = Vec::new();
@@ -246,6 +415,21 @@ impl Dictionary {
             .collect::<Vec<_>>()
             .join(" ")
     }
+}
+
+fn prefix_indices<'a, Code: AsRef<[u8]>>(
+    indices: &'a [usize],
+    prefix: &[u8],
+    code: impl Fn(usize) -> Code,
+) -> &'a [usize] {
+    let compare = |index| {
+        let code = code(index);
+        let code = code.as_ref();
+        code[..code.len().min(prefix.len())].cmp(prefix)
+    };
+    let start = indices.partition_point(|&index| compare(index).is_lt());
+    let count = indices[start..].partition_point(|&index| compare(index).is_eq());
+    &indices[start..start + count]
 }
 
 fn invalid_row(table: usize, line: usize, reason: i64) {

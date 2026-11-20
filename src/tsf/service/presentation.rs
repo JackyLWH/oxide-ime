@@ -6,7 +6,7 @@ use super::super::{
     ui_element::{CandidateUi, ToastUi},
 };
 use super::{edit::request_edit, input::perform_key, TextService};
-use crate::engine::{Edit, Key, PAGE_SIZE};
+use crate::engine::{Edit, Key};
 
 unsafe fn render_window(service: *mut TextService, anchor: Option<Rect>) {
     let Some(session) = (*service).session.as_ref() else {
@@ -125,7 +125,7 @@ pub(super) unsafe fn ui_finalize(owner: Raw) -> bool {
     let position = if session.menu_open {
         index
     } else {
-        index % PAGE_SIZE
+        index % session.page_size()
     };
     let context = current_context(service);
     perform_key(service, context, Key::Select(position))

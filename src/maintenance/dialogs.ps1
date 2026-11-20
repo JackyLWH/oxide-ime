@@ -224,6 +224,6 @@ switch ($env:OXIDE_IME_ACTION) {
     }
     About {
         Show-Result (@("Oxide IME $env:OXIDE_IME_LOADED ($env:OXIDE_IME_ARCH)",
-            'Windows TSF 倉頡三代及粵拼輸入法', "資料目錄　$data") -join [Environment]::NewLine)
+            'Windows TSF 倉頡三代、速成、筆劃及粵拼輸入法', "資料目錄　$data") -join [Environment]::NewLine)
     }
 }

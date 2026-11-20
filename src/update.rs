@@ -19,8 +19,8 @@ use crate::public_data;
 
 use crate::simplify::Converter;
 use crate::win32::hidden_command;
-pub(crate) use files::{publication_reader, register_initial_sources};
-use files::{write_atomic, Failure};
+use files::Failure;
+pub(crate) use files::{publication_reader, register_initial_sources, write_atomic};
 
 const OPENCC: &str = "BYVoid/OpenCC";
 const RIME: &str = "rime/rime-cantonese";

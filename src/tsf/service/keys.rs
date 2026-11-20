@@ -1,6 +1,6 @@
 //! 將 Windows 按鍵轉成輸入引擎辨識的操作。
 use super::ffi;
-use crate::engine::{Key, Switch, PAGE_SIZE};
+use crate::engine::{Key, Switch};
 
 #[derive(Clone, Copy, Default)]
 pub(super) struct Modifiers {
@@ -81,6 +81,7 @@ pub(super) fn translate_key(
     modifiers: Modifiers,
     composing: bool,
     menu_open: bool,
+    stroke_input: bool,
 ) -> Option<Key> {
     let Modifiers {
         shift,
@@ -104,6 +105,10 @@ pub(super) fn translate_key(
     if !ctrl && !shift && !alt && !win && key == 0x73 && !composing {
         return Some(Key::Menu);
     }
+    if stroke_input && !menu_open && !ctrl && !shift && !alt && !win && (0x64..=0x69).contains(&key)
+    {
+        return Some(Key::Numpad((b'0' + (key - 0x60) as u8) as char));
+    }
     if composing {
         // Caps Lock 必須交給系統切換狀態；單獨 Shift 由 key sink 處理。
         if key == 0x14 || shift_key(key) {
@@ -123,7 +128,7 @@ pub(super) fn translate_key(
             0x1b => Key::Escape,
             0x0d => Key::Enter,
             0x20 => Key::Space,
-            0x31..=0x39 if key - 0x31 < PAGE_SIZE => Key::Select(key - 0x31),
+            0x31..=0x39 => Key::Select(key - 0x31),
             0x25 | 0x26 => Key::Previous,
             0x27 | 0x28 => Key::Next,
             _ => Key::Block,
@@ -146,8 +151,8 @@ pub(super) fn translate_key(
             return None;
         }
         return Some(match key {
-            0x31..=0x35 => Key::Select(key - 0x31),
-            0x61..=0x65 => Key::Select(key - 0x61),
+            0x31..=0x39 => Key::Select(key - 0x31),
+            0x61..=0x69 => Key::Select(key - 0x61),
             0x1b => Key::Escape,
             0x0d => Key::Enter,
             0x20 => Key::Space,
@@ -169,6 +174,16 @@ pub(super) fn translate_key(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn translate_key(
+        key: usize,
+        modifiers: Modifiers,
+        composing: bool,
+        menu_open: bool,
+    ) -> Option<Key> {
+        super::translate_key(key, modifiers, composing, menu_open, false)
+    }
+
     #[test]
     fn control_slash_toggles_simplification_during_and_outside_composition() {
         let control = Modifiers {
@@ -284,15 +299,15 @@ mod tests {
         );
         assert_eq!(
             translate_key(0x36, Modifiers::default(), false, true),
-            Some(Key::Block)
+            Some(Key::Select(5))
         );
         assert_eq!(
             translate_key(0xbf, Modifiers::default(), false, false),
             Some(Key::Symbol('/'))
         );
         for key in [
-            0x09, 0x21, 0x22, 0x30, 0x33, 0x60, 0x61, 0x69, 0x6a, 0x6b, 0x6d, 0x6e, 0x6f, 0x73,
-            0xbe, 0xbf,
+            0x09, 0x21, 0x22, 0x30, 0x60, 0x61, 0x69, 0x6a, 0x6b, 0x6d, 0x6e, 0x6f, 0x73, 0xbe,
+            0xbf,
         ] {
             assert_eq!(
                 translate_key(key, Modifiers::default(), true, false),
@@ -308,6 +323,27 @@ mod tests {
         assert_eq!(
             translate_key(0x28, Modifiers::default(), true, false),
             Some(Key::Next)
+        );
+    }
+
+    #[test]
+    fn stroke_numpad_keys_are_distinct_from_selection_and_navigation() {
+        for key in 0x64..=0x69 {
+            let digit = (b'0' + (key - 0x60) as u8) as char;
+            for composing in [false, true] {
+                assert_eq!(
+                    super::translate_key(key, Modifiers::default(), composing, false, true),
+                    Some(Key::Numpad(digit))
+                );
+            }
+            assert_eq!(
+                super::translate_key(key - 0x30, Modifiers::default(), true, false, true),
+                Some(Key::Select(key - 0x61))
+            );
+        }
+        assert_eq!(
+            super::translate_key(0x25, Modifiers::default(), true, false, true),
+            Some(Key::Previous)
         );
     }
 }

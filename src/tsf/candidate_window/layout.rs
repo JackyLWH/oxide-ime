@@ -78,11 +78,39 @@ impl CandidateWindow {
         let margin = scale(12).max(1);
         let gap = scale(5).max(1);
         let padding = scale(2).max(1);
+        let page = if let WindowContent::Candidates(page) = content {
+            let text = wide(&(page + 1).to_string());
+            let previous = if self.model.page_font.is_null() {
+                ptr::null_mut()
+            } else {
+                SelectObject(dc, self.model.page_font)
+            };
+            let mut size = Size::default();
+            GetTextExtentPoint32W(dc, text.as_ptr(), (text.len() - 1) as i32, &mut size);
+            if !previous.is_null() {
+                SelectObject(dc, previous);
+            }
+            Some((text, size))
+        } else {
+            None
+        };
+        if self.anchor.is_none() {
+            self.anchor = fallback_rect();
+        }
+        let work = self.anchor.and_then(|anchor| monitor_work_area(anchor));
+        let page_width = page.as_ref().map_or(0, |(_, size)| size.cx + scale(7));
+        let trailing = margin.max(page_width);
+        let max_width = if page.is_some() {
+            work.map_or(i32::MAX, |work| (work.right - work.left).max(1))
+        } else {
+            i32::MAX
+        };
         let mut paint_items = Vec::with_capacity(items.len());
         let mut x = margin;
         let mut y = margin;
-        let mut max_width = 0;
-        let mut max_height = 0;
+        let mut right = margin;
+        let mut bottom = margin;
+        let mut row_height = 0;
         for (value, selected) in items {
             let mut runs = candidate_runs(value, fonts, self.model.font);
             let (mut text_width, mut text_height) = (0, 0);
@@ -103,6 +131,12 @@ impl CandidateWindow {
             }
             let item_width = (text_width + padding * 2).max(1);
             let item_height = (text_height + padding * 2).max(scale(24));
+            // 先用盡當頁的橫向空間，再把其餘候選移至下一列。
+            if !vertical && x > margin && x + item_width + trailing > max_width {
+                x = margin;
+                y += row_height + gap;
+                row_height = 0;
+            }
             paint_items.push(PaintItem {
                 runs,
                 selected: *selected,
@@ -113,56 +147,26 @@ impl CandidateWindow {
                     bottom: y + item_height,
                 },
             });
-            max_width = max_width.max(item_width);
-            max_height = max_height.max(item_height);
+            right = right.max(x + item_width);
+            bottom = bottom.max(y + item_height);
+            row_height = row_height.max(item_height);
             if vertical {
                 y += item_height + gap;
             } else {
                 x += item_width + gap;
             }
         }
-        let page = if let WindowContent::Candidates(page) = content {
-            let text = wide(&(page + 1).to_string());
-            let previous = if self.model.page_font.is_null() {
-                ptr::null_mut()
-            } else {
-                SelectObject(dc, self.model.page_font)
-            };
-            let mut size = Size::default();
-            GetTextExtentPoint32W(dc, text.as_ptr(), (text.len() - 1) as i32, &mut size);
-            if !previous.is_null() {
-                SelectObject(dc, previous);
-            }
-            Some((text, size))
-        } else {
-            None
-        };
         if !old.is_null() {
             SelectObject(dc, old);
         }
         ReleaseDC(self.window, dc);
         let width = if vertical {
-            (max_width + margin * 2).max(scale(160))
+            (right + trailing).max(scale(160))
         } else {
-            let right = x - gap;
-            let page_width = page.as_ref().map_or(0, |(_, size)| size.cx + scale(7));
-            right + margin.max(page_width)
+            (right + trailing).min(max_width)
         };
-        let height = if vertical {
-            y - gap + margin
-        } else {
-            max_height + margin * 2
-        };
-        if self.anchor.is_none() {
-            self.anchor = fallback_rect();
-        }
+        let height = bottom + margin;
         let rect = self.anchor?;
-        let work = monitor_work_area(rect);
-        let width = if matches!(content, WindowContent::Candidates(_)) {
-            work.map_or(width, |work| width.min((work.right - work.left).max(1)))
-        } else {
-            width
-        };
         if vertical {
             for item in &mut paint_items {
                 item.rect.right = width - margin;

@@ -36,11 +36,17 @@ fn initialise_at(
     templates: Option<&Path>,
     policy: &str,
 ) -> Result<Vec<String>, String> {
+    const GUIDE: &[u8] = include_bytes!("../../docs/installation.md");
     let Some(_lock) = windows::Lock::acquire_for("InitializeData", 5_000)? else {
         return Err("另一個維護程序正在初始化使用者資料".into());
     };
     if data.join(".initialized").is_file() {
-        return crate::update::register_initial_sources(data, templates, false, write_new);
+        let notices = crate::update::register_initial_sources(data, templates, false, write_new)?;
+        if templates.is_some() {
+            fs::create_dir_all(docs).map_err(error)?;
+            crate::update::write_atomic(&docs.join("安裝及使用.md"), GUIDE)?;
+        }
+        return Ok(notices);
     }
     let mut notices = Vec::new();
     let dictionaries = data.join("dictionaries");
@@ -58,10 +64,7 @@ fn initialise_at(
     ] {
         write_new(&data.join("setting").join(name), bytes)?;
     }
-    write_new(
-        &docs.join("安裝及使用.md"),
-        include_bytes!("../../docs/installation.md"),
-    )?;
+    write_new(&docs.join("安裝及使用.md"), GUIDE)?;
     notices.extend(crate::update::register_initial_sources(
         data, templates, true, write_new,
     )?);
@@ -228,6 +231,17 @@ mod tests {
                 .len(),
             64
         );
+        assert_eq!(
+            fs::read(dictionaries.join(public_data::STROKE)).unwrap(),
+            public_data::STROKE_TEMPLATE.1,
+        );
+        assert_eq!(
+            stored["sha256"][public_data::STROKE]
+                .as_str()
+                .unwrap()
+                .len(),
+            64
+        );
         for name in public_data::BUILD_TEMPLATES {
             assert_eq!(stored["sha256"][name].as_str().unwrap().len(), 64);
             if name != public_data::CUHK_RANK {
@@ -237,6 +251,29 @@ mod tests {
                 );
             }
         }
+        crate::tests::remove_fixture(&root);
+    }
+
+    #[test]
+    fn upgrade_adds_the_missing_stroke_table_and_keeps_user_changes() {
+        let root = crate::tests::fixture_dir("stroke-upgrade");
+        let data = root.join("data");
+        let docs = root.join("docs");
+        let dictionaries = data.join("dictionaries");
+        fs::create_dir_all(&dictionaries).unwrap();
+        fs::write(data.join(".initialized"), r#"{"format":1,"sha256":{}}"#).unwrap();
+        let path = dictionaries.join(public_data::STROKE);
+        fs::write(&path, "...\n一\th\n").unwrap();
+        assert_eq!(
+            initialise_at(&data, &docs, None, "opencc\n").unwrap(),
+            [public_data::STROKE]
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "...\n一\th\n");
+        fs::remove_file(&path).unwrap();
+        assert!(initialise_at(&data, &docs, None, "opencc\n")
+            .unwrap()
+            .is_empty());
+        assert!(!path.exists());
         crate::tests::remove_fixture(&root);
     }
 }

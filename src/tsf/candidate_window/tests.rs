@@ -505,7 +505,7 @@ fn candidate_window_shows_and_hides_without_activation() {
         assert_eq!(window.model.hide_events.get(), initial_hide_events);
         let original = format!("{}\n第二行", "長".repeat(30));
         let long = [CandidateView {
-            text: crate::engine::preview(&original),
+            text: crate::engine::preview(&original, crate::dictionary::InputMode::Cangjie),
             selected: true,
         }];
         window.update(&long, 0, None);

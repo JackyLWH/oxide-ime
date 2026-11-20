@@ -255,7 +255,10 @@ def run_child(kernel, sid, executable, script, dll, private, pipe_name, fixture,
                     raise c.WinError(c.get_last_error())
                 shared_checked = True
             if not reloaded and b"READY_FOR_RELOAD" in output:
-                private.write_text("---\n...\n即時更新詞條\tz\n" + COMMAND_MARKERS, encoding="utf-8")
+                private.write_text(
+                    "---\n...\n即時更新詞條\tz\n跨方案測試詞\\n第二行\tmynote\n" + COMMAND_MARKERS,
+                    encoding="utf-8",
+                )
                 data = c.create_string_buffer(b"continue\n")
                 written = w.DWORD()
                 if not kernel.WriteFile(input_write, data, 9, c.byref(written), None) or written.value != 9:
@@ -369,7 +372,8 @@ def main():
                 desktop_dll = outputs / "rust_ime_desktop_fixture.dll"
                 shutil.copy2(args.desktop_dll, desktop_dll)
             shutil.copy2(broker_source, broker)
-            (data / "cangjie3.dict.yaml").write_text("---\n...\n日\ta\n曰\ta\n昌\taa\n髮\ts\n𠀀\tsx\n", encoding="utf-8")
+            (data / "cangjie3.dict.yaml").write_text("---\n...\n日\ta\n曰\ta\n昌\taa\n髮\ts\n𠀀\tsx\n你\tonf\n", encoding="utf-8")
+            shutil.copy2(ROOT / "assets/templates/stroke.dict.yaml", data)
             # 固定粵拼反查及同音搜尋的候選，測試只依賴這份隔離資料。
             (data / "jyut6ping3.chars.dict.csv.json").write_text(
                 '{"日":{"jat6":"預設"},"逸":{"jat6":"預設"},"我":{"ngo5":"預設"}}', encoding="utf-8"

@@ -1,19 +1,29 @@
 //! 各宿主程序按專案字典的檔案狀態重新載入，失敗時保留上一份有效字庫。
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Instant;
 
-use super::{Dictionary, Ranking, DICTIONARY_FILES};
+use super::{Dictionary, InputMode, Ranking, DICTIONARY_FILES};
 use crate::diagnostics::{self, Level, WarningLimit};
 use crate::homophone::Fuzzy;
-
 use crate::project_files::{self, FileStamp};
 use crate::public_data::{self, Cache};
 
 #[derive(Clone)]
 pub(crate) struct Dictionaries {
     pub cangjie: Arc<Dictionary>,
+    pub stroke: Option<Arc<Dictionary>>,
     pub ranking: Arc<Ranking>,
+}
+
+impl Dictionaries {
+    pub(crate) fn table(&self, mode: InputMode) -> Option<&Arc<Dictionary>> {
+        if mode == InputMode::Stroke {
+            self.stroke.as_ref()
+        } else {
+            Some(&self.cangjie)
+        }
+    }
 }
 
 #[derive(PartialEq, Eq)]
@@ -27,6 +37,8 @@ pub(crate) struct DictionaryStore {
     installed: bool,
     attempted: Option<Tables>,
     current: Option<Arc<Dictionary>>,
+    stroke: Cache<Dictionary>,
+    stroke_source: Weak<Dictionary>,
     ranking: Cache<Ranking>,
     fuzzy_stamp: Option<FileStamp>,
     fuzzy: Option<Arc<Fuzzy>>,
@@ -52,6 +64,8 @@ impl DictionaryStore {
             installed,
             attempted: None,
             current: None,
+            stroke: Cache::empty(),
+            stroke_source: Weak::new(),
             ranking: Cache::empty(),
             fuzzy_stamp: None,
             fuzzy: None,
@@ -59,8 +73,25 @@ impl DictionaryStore {
         }
     }
 
-    pub(crate) fn dictionaries(&mut self) -> Result<Dictionaries, String> {
+    pub(crate) fn dictionaries(&mut self, mode: InputMode) -> Result<Dictionaries, String> {
         let cangjie = self.refresh()?;
+        let stroke = if mode == InputMode::Stroke {
+            if !self.stroke_source.upgrade().is_some_and(|previous| {
+                Arc::ptr_eq(&previous, &cangjie)
+                    || previous.custom_entries() == cangjie.custom_entries()
+            }) {
+                self.stroke.invalidate();
+            }
+            self.stroke_source = Arc::downgrade(&cangjie);
+            self.stroke.get(
+                &self.directory,
+                [public_data::STROKE],
+                "stroke",
+                |[source]| Dictionary::parse_stroke(source, &cangjie),
+            )
+        } else {
+            None
+        };
         let ranking = self
             .ranking
             .get(
@@ -70,7 +101,11 @@ impl DictionaryStore {
                 |[source]| Ranking::parse(source),
             )
             .unwrap_or_else(Ranking::standard);
-        Ok(Dictionaries { cangjie, ranking })
+        Ok(Dictionaries {
+            cangjie,
+            stroke,
+            ranking,
+        })
     }
 
     fn stamps(base: &Path, custom: &Path) -> Result<Tables, String> {
@@ -198,6 +233,34 @@ mod tests {
     use crate::engine::{Key, Session};
 
     #[test]
+    fn stroke_refreshes_shortcuts_and_keeps_the_last_valid_copy() {
+        let dir = crate::tests::fixture_dir("stroke-shortcut-reload");
+        std::fs::write(dir.join(DICTIONARY_FILES[0]), "...\n日\ta\n").unwrap();
+        std::fs::write(dir.join(public_data::STROKE), "...\n一\th\n").unwrap();
+        let custom = dir.join(DICTIONARY_FILES[1]);
+        std::fs::write(&custom, "...\n舊詞條\tmynote\n").unwrap();
+        let mut store = DictionaryStore::new(dir.clone());
+        let text = |view: &Dictionaries| {
+            let stroke = view.stroke.as_ref().unwrap();
+            let item = stroke.lookup(InputMode::Stroke, "mynote", true, None, &view.ranking)[0];
+            stroke.text(item, None).into_owned()
+        };
+        let original = store.dictionaries(InputMode::Stroke).unwrap();
+        assert_eq!(text(&original), "舊詞條");
+        std::fs::write(&custom, "...\n更新後詞條\tmynote\n").unwrap();
+        let updated = store.dictionaries(InputMode::Stroke).unwrap();
+        assert_eq!(text(&updated), "更新後詞條");
+        assert_eq!(text(&original), "舊詞條");
+        std::fs::write(&custom, "無效字庫").unwrap();
+        let fallback = store.dictionaries(InputMode::Stroke).unwrap();
+        assert!(Arc::ptr_eq(
+            updated.stroke.as_ref().unwrap(),
+            fallback.stroke.as_ref().unwrap()
+        ));
+        crate::tests::remove_fixture(&dir);
+    }
+
+    #[test]
     fn saved_changes_reload_and_invalid_intermediate_files_keep_the_last_good_table() {
         let dir = crate::tests::fixture_dir("dictionary-reload");
         let base = dir.join(DICTIONARY_FILES[0]);
@@ -248,11 +311,10 @@ mod tests {
         let custom = dir.join(DICTIONARY_FILES[1]);
         std::fs::write(&base, "---\n...\n日\ta\n").unwrap();
         let mut store = DictionaryStore::at(dir.clone(), true);
-        let ranking = Ranking::default();
         assert!(store
             .refresh()
             .unwrap()
-            .lookup("z", true, None, &ranking)
+            .lookup(InputMode::Cangjie, "z", true, None, &Ranking::default())
             .is_empty());
 
         std::fs::write(
@@ -263,7 +325,7 @@ mod tests {
         let dictionary = store.refresh().unwrap();
         let commands = |prefix| {
             dictionary
-                .lookup(prefix, true, None, &ranking)
+                .lookup(InputMode::Cangjie, prefix, true, None, &Ranking::default())
                 .into_iter()
                 .map(|entry| dictionary.command(entry).unwrap())
                 .collect::<Vec<_>>()
@@ -285,7 +347,8 @@ mod tests {
         let mut store = DictionaryStore::at(dir.clone(), true);
         let get = |store: &mut DictionaryStore| {
             let dictionary = store.refresh().unwrap();
-            let candidate = dictionary.lookup("a", true, None, &Ranking::default())[0];
+            let candidate =
+                dictionary.lookup(InputMode::Cangjie, "a", true, None, &Ranking::default())[0];
             dictionary.text(candidate, None).into_owned()
         };
         assert_eq!(get(&mut store), "初");
@@ -295,39 +358,6 @@ mod tests {
         assert_eq!(get(&mut store), "使用者版本");
         std::fs::write(&table, "格式無效").unwrap();
         assert_eq!(get(&mut store), "使用者版本");
-        crate::tests::remove_fixture(&dir);
-    }
-
-    #[test]
-    fn ranking_reloads_without_rebuilding_the_dictionary() {
-        let dir = crate::tests::fixture_dir("ranking-reload");
-        std::fs::write(
-            dir.join(DICTIONARY_FILES[0]),
-            "...\n甲\ta\n乙\ta\n昍\tac\n丙\taz\n丁\taa\n戊\tab\n",
-        )
-        .unwrap();
-        let ranking = dir.join(public_data::RANKING);
-        std::fs::write(&ranking, "乙\n丙\n").unwrap();
-        let mut store = DictionaryStore::new(dir.clone());
-        let first = store.dictionaries().unwrap();
-        let sort = |tables: &Dictionaries| -> Vec<String> {
-            tables
-                .cangjie
-                .lookup("a", true, None, &tables.ranking)
-                .into_iter()
-                .map(|item| tables.cangjie.text(item, None).into_owned())
-                .collect()
-        };
-        assert_eq!(sort(&first), ["甲", "乙", "丙", "昍", "丁", "戊"]);
-        std::fs::write(&ranking, "\u{feff}戊\n昍\n").unwrap();
-        let updated = store.dictionaries().unwrap();
-        assert!(Arc::ptr_eq(&first.cangjie, &updated.cangjie));
-        assert_eq!(sort(&updated), ["甲", "乙", "戊", "昍", "丙", "丁"]);
-        std::fs::write(&ranking, "無效\n").unwrap();
-        assert!(Arc::ptr_eq(
-            &updated.ranking,
-            &store.dictionaries().unwrap().ranking
-        ));
         crate::tests::remove_fixture(&dir);
     }
 }

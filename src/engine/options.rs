@@ -1,12 +1,14 @@
 //! F4 設定的選項、標籤和操作。
 use super::{Edit, Key, Outcome, Session};
+use crate::dictionary::InputMode;
 
-pub(super) const SWITCHES: [Switch; 5] = [
+pub(super) const SWITCHES: [Switch; 6] = [
     Switch::LimitChars,
     Switch::Simplification,
     Switch::StartupMode,
     Switch::FullShape,
     Switch::AsciiPunct,
+    Switch::InputMode,
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -16,6 +18,25 @@ pub(crate) enum Switch {
     StartupMode,
     FullShape,
     AsciiPunct,
+    InputMode,
+}
+
+impl InputMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Cangjie => "倉頡",
+            Self::Quick => "速成",
+            Self::Stroke => "筆劃",
+        }
+    }
+
+    pub(crate) fn toast(self) -> &'static str {
+        match self {
+            Self::Cangjie => "倉頡模式",
+            Self::Quick => "速成模式",
+            Self::Stroke => "筆劃模式",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -62,6 +83,7 @@ impl Session {
             ),
             Switch::FullShape => ("字形", if self.full_shape { "全角" } else { "半角" }),
             Switch::AsciiPunct => ("標點", if self.ascii_punct { "．，" } else { "。，" }),
+            Switch::InputMode => ("輸入方案", self.input_mode.label()),
         }
     }
 
@@ -96,6 +118,14 @@ impl Session {
             Switch::StartupMode => self.startup_ascii = !self.startup_ascii,
             Switch::FullShape => self.full_shape = !self.full_shape,
             Switch::AsciiPunct => self.ascii_punct = !self.ascii_punct,
+            Switch::InputMode => {
+                self.input_mode = match self.input_mode {
+                    InputMode::Cangjie => InputMode::Quick,
+                    InputMode::Quick => InputMode::Stroke,
+                    InputMode::Stroke => InputMode::Cangjie,
+                };
+                return self.cancel_composition();
+            }
         }
         if self.is_composing() && matches!(option, Switch::LimitChars | Switch::Simplification) {
             self.refresh();

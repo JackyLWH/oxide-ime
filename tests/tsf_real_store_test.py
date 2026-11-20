@@ -579,9 +579,10 @@ def release_dll():
 def main():
     dll_path = Path(sys.argv[1] if len(sys.argv) > 1 else release_dll()).resolve()
     version = re.fullmatch(r"(?:rust|oxide)_ime_stage(\d+)(?:_x86)?\.dll", dll_path.name.lower())
-    formal = re.fullmatch(r"oxide_ime_v\d+\.\d+(?:\.\d+)?(?:_x86)?\.dll", dll_path.name.lower())
-    completion = "時" if formal else "昌"
-    moon_completion = "同" if formal else "㸓"
+    formal = re.fullmatch(r"oxide_ime_v(\d+)\.\d+(?:\.\d+)?(?:_x86)?\.dll", dll_path.name.lower())
+    ranked = formal and int(formal.group(1)) >= 2
+    completion = "時" if ranked else "昌"
+    moon_completion = "同" if ranked else "㸓"
     # 正式版涵蓋各開發階段已交付的功能。保留舊版作回歸對照。
     stage = 54 if formal else int(version.group(1)) if version else 0
     stage5 = "--stage5" in sys.argv or stage >= 5
@@ -654,7 +655,7 @@ def main():
             return text
         if mode_text() != "英":
             raise RuntimeError("輸入模式初始圖示不正確")
-        if formal:
+        if ranked:
             verify_mode_menu(mode_button)
     def key_event(slot, key):
         eaten = LONG()
@@ -895,7 +896,7 @@ def main():
         raise RuntimeError("宿主終止組字後的文字不正確")
     press(0x42)
     press(0x32)
-    if store.content() != prefix + (moon_completion if stage5 else "日" + moon_completion):
+    if store.content() != prefix + ("" if stage5 else "日") + moon_completion:
         raise RuntimeError("宿主終止組字後未能重新組字")
     print("宿主終止組字：狀態已清理，之後可重新輸入。", flush=True)
 

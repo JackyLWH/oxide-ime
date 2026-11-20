@@ -26,7 +26,7 @@ use super::ui_element::{Callbacks as UiCallbacks, CandidateUi, ToastUi};
 use super::MODULE;
 use super::OBJECTS;
 use crate::diagnostics::{self, Level};
-use crate::dictionary::{Dictionaries, DictionaryStore};
+use crate::dictionary::{Dictionaries, DictionaryStore, InputMode};
 use crate::engine::{Key, Session};
 use crate::project_files;
 use input::{
@@ -51,7 +51,7 @@ pub(crate) fn set_test_dictionary(directory: PathBuf) {
     *store = Some(DictionaryStore::new(directory));
 }
 
-fn dictionary() -> Result<Option<Dictionaries>, HResult> {
+fn dictionaries(mode: InputMode) -> Result<Option<Dictionaries>, HResult> {
     if *APP_CONTAINER
         .get_or_init(crate::broker::is_appcontainer)
         .as_ref()
@@ -76,7 +76,7 @@ fn dictionary() -> Result<Option<Dictionaries>, HResult> {
     loaded
         .as_mut()
         .ok_or(ffi::E_FAIL)?
-        .dictionaries()
+        .dictionaries(mode)
         .map(Some)
         .map_err(|_| ffi::E_FAIL)
 }
@@ -305,7 +305,7 @@ unsafe fn activate_with_flags(this: Raw, manager: Raw, client_id: u32, flags: u3
     if !(*service).key_mgr.is_null() || client_id == 0 {
         return ffi::E_UNEXPECTED;
     }
-    let dict = match dictionary() {
+    let dict = match dictionaries(InputMode::Cangjie) {
         Ok(value) => value,
         Err(hr) => {
             diagnostics::result("tsf", "activate_dictionary", hr);

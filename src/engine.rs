@@ -6,11 +6,10 @@ use options::SWITCHES;
 pub(crate) use options::{Switch, SwitchView};
 
 use crate::commands::{self, Command, CommandProvider};
-use crate::dictionary::{Dictionaries, Dictionary, DictionaryMatch};
+use crate::dictionary::{stroke_key, Dictionaries, Dictionary, DictionaryMatch, InputMode};
 use crate::punctuation::{self, Mapping};
 use std::sync::Arc;
 
-pub(crate) const PAGE_SIZE: usize = 2;
 const PREVIEW_LIMIT: usize = 20;
 const RADICALS: [char; 26] = [
     '日', '月', '金', '木', '水', '火', '土', '竹', '戈', '十', '大', '中', '一', '弓', '人', '心',
@@ -18,17 +17,21 @@ const RADICALS: [char; 26] = [
 ];
 
 /// 候選框只取得縮略文字；實際提交仍使用未截斷的字串。
-pub(crate) fn preview(text: &str) -> String {
+pub(crate) fn preview(text: &str, mode: InputMode) -> String {
+    let (limit, suffix) = match mode {
+        InputMode::Cangjie => (PREVIEW_LIMIT, "…"),
+        InputMode::Quick | InputMode::Stroke => (4, "..."),
+    };
     let mut chars = text.chars();
     let mut result = String::new();
-    for ch in chars.by_ref().take(PREVIEW_LIMIT) {
+    for ch in chars.by_ref().take(limit) {
         result.push(match ch {
             '\n' | '\r' => '↵',
             _ => ch,
         });
     }
     if chars.next().is_some() {
-        result.push('…');
+        result.push_str(suffix);
     }
     result
 }
@@ -42,6 +45,7 @@ pub(crate) enum Key {
     ToggleSimplification,
     ToggleOption(Switch),
     Letter(char),
+    Numpad(char),
     Symbol(char),
     Backspace,
     Escape,
@@ -147,6 +151,7 @@ struct HomophoneFrame {
 #[derive(Clone)]
 pub(crate) struct Session {
     dictionaries: Option<Dictionaries>,
+    pub input_mode: InputMode,
     converter: Arc<crate::simplify::Converter>,
     pub ascii_mode: bool,
     pub limit_chars: bool,
@@ -175,6 +180,7 @@ impl Session {
     pub(crate) fn new(dictionary: Arc<Dictionary>) -> Self {
         Self::local(Dictionaries {
             cangjie: dictionary,
+            stroke: None,
             ranking: Arc::default(),
         })
     }
@@ -191,6 +197,7 @@ impl Session {
         let sandboxed = dictionaries.is_none();
         Self {
             dictionaries,
+            input_mode: InputMode::Cangjie,
             converter: crate::simplify::current(),
             ascii_mode: true,
             limit_chars: true,
@@ -219,13 +226,17 @@ impl Session {
         let Some(current) = &mut self.dictionaries else {
             return;
         };
-        if Arc::ptr_eq(&current.cangjie, &dictionaries.cangjie)
-            && Arc::ptr_eq(&current.ranking, &dictionaries.ranking)
-        {
-            return;
-        }
+        let same_table = match (
+            current.table(self.input_mode),
+            dictionaries.table(self.input_mode),
+        ) {
+            (Some(old), Some(new)) => Arc::ptr_eq(old, new),
+            (None, None) => true,
+            _ => false,
+        };
+        let changed = !same_table || !Arc::ptr_eq(&current.ranking, &dictionaries.ranking);
         *current = dictionaries;
-        if !self.raw.is_empty() {
+        if changed && !self.raw.is_empty() {
             self.refresh();
         }
     }
@@ -243,22 +254,27 @@ impl Session {
     }
 
     fn local_dictionary(&self) -> &Dictionary {
-        &self
-            .dictionaries
+        self.dictionaries
             .as_ref()
+            .and_then(|dictionaries| dictionaries.table(self.input_mode))
+            .map(Arc::as_ref)
             .expect("本機候選需要本機字庫")
-            .cangjie
     }
 
     pub(crate) fn reverse_exact(&self) -> Option<bool> {
         self.reverse_exact
     }
 
+    pub(crate) fn stroke_input(&self) -> bool {
+        !self.ascii_mode && self.reverse_exact.is_none() && self.input_mode == InputMode::Stroke
+    }
+
     pub(crate) fn needs_local_phonetics(&self, key: Key) -> bool {
         !self.is_sandboxed()
             && (self.reverse_exact.is_some()
                 || self.homophone_anchor().is_some()
-                || matches!(key, Key::ToggleJyutping | Key::Letter('z' | 'Z')))
+                || matches!(key, Key::ToggleJyutping)
+                || (self.input_mode == InputMode::Cangjie && matches!(key, Key::Letter('z' | 'Z'))))
     }
 
     pub(crate) fn set_fuzzy(&mut self, fuzzy: Arc<crate::homophone::Fuzzy>) {
@@ -269,6 +285,7 @@ impl Session {
         self.ascii_mode = modes.ascii;
         self.startup_ascii = modes.startup_ascii;
         if !self.is_composing() {
+            self.input_mode = modes.input_mode;
             self.reverse_exact = modes.reverse_exact;
         }
         if self.simplification != modes.simplified {
@@ -295,7 +312,18 @@ impl Session {
         std::mem::take(&mut self.menu_open)
     }
     pub(crate) fn page(&self) -> usize {
-        self.current_selection() / PAGE_SIZE
+        self.current_selection() / self.page_size()
+    }
+
+    pub(crate) fn page_size(&self) -> usize {
+        if self.reverse_exact.is_none()
+            && self.input_mode != InputMode::Cangjie
+            && self.punctuation_candidates().is_none()
+        {
+            9
+        } else {
+            2
+        }
     }
 
     pub(crate) fn ui_count(&self) -> usize {
@@ -354,9 +382,10 @@ impl Session {
                 selected: true,
             }];
         }
-        let first = self.page() * PAGE_SIZE;
+        let size = self.page_size();
+        let first = self.page() * size;
         let selected = self.current_selection();
-        (first..(first + PAGE_SIZE).min(self.current_count()))
+        (first..(first + size).min(self.current_count()))
             .filter_map(|index| {
                 self.candidate_text(index).map(|text| CandidateView {
                     text,
@@ -392,7 +421,8 @@ impl Session {
             && self.is_composing()
             && (self.raw.len() <= 6
                 || self.homophone_anchor().is_some()
-                || self.reverse_exact.is_some())
+                || self.reverse_exact.is_some()
+                || self.input_mode == InputMode::Stroke)
     }
 
     fn current_selection(&self) -> usize {
@@ -439,6 +469,7 @@ impl Session {
             return true;
         }
         match key {
+            Key::Numpad(ch) => self.stroke_input() && stroke_key(ch).is_some(),
             Key::Letter(ch) => ch.is_ascii_alphabetic() && (!self.ascii_mode || self.full_shape),
             Key::Symbol(ch) => {
                 punctuation::mapping(ch, self.ascii_mode, self.full_shape, self.ascii_punct)
@@ -494,11 +525,14 @@ impl Session {
                 }
                 Outcome::handled(Edit::None)
             }
-            Key::Letter(ch) => {
+            Key::Numpad(ch) if !self.stroke_input() || stroke_key(ch).is_none() => {
+                Outcome::handled(Edit::None)
+            }
+            Key::Letter(ch) | Key::Numpad(ch) => {
                 if self.ascii_mode {
                     return self.insert_symbol(ch);
                 }
-                if self.reverse_exact.is_none() {
+                if self.reverse_exact.is_none() && self.input_mode == InputMode::Cangjie {
                     self.advance_homophone(ch);
                 }
                 self.raw.push(ch);
@@ -544,8 +578,9 @@ impl Session {
                 }
             }
             Key::Select(position) => {
-                let index = self.page() * PAGE_SIZE + position;
-                if position < PAGE_SIZE && index < self.current_count() {
+                let size = self.page_size();
+                let index = self.page() * size + position;
+                if position < size && index < self.current_count() {
                     self.commit_index(index)
                 } else {
                     Outcome::handled(Edit::None)
@@ -697,6 +732,14 @@ impl Session {
         }
         if self.raw.is_empty() {
             return prefix.to_owned();
+        }
+        if self.input_mode == InputMode::Stroke {
+            let strokes: Option<String> = self
+                .raw
+                .chars()
+                .map(|key| stroke_key(key).map(|(_, display)| display))
+                .collect();
+            return format!("{prefix}{}", strokes.as_deref().unwrap_or(&self.raw));
         }
         if let Some(anchor) = self.homophone_anchor() {
             if !self.matches.is_empty() || self.raw.len() > 6 {

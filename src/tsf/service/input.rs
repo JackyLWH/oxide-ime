@@ -8,7 +8,7 @@ use super::super::{
     ui_element::CandidateUi,
 };
 use super::{
-    dictionary,
+    dictionaries,
     edit::{self, request_edit},
     keys::{modifiers, shift_key, translate_key},
     mouse::{install_mouse_hook, remove_mouse_hook},
@@ -17,6 +17,7 @@ use super::{
 };
 use crate::broker::{self, ModeAction};
 use crate::diagnostics::{self, Level};
+use crate::dictionary::InputMode;
 use crate::engine::{Edit, Key, Session};
 use crate::win32::{GetFocus, GetForegroundWindow};
 
@@ -45,6 +46,7 @@ struct KeyState {
     ascii: bool,
     simplified: bool,
     startup: bool,
+    input_mode: InputMode,
     menu: bool,
     reverse: Option<bool>,
     composing: bool,
@@ -124,7 +126,7 @@ pub(super) unsafe fn perform_key(service: *mut TextService, context: Raw, key: K
     }
     // 選字時先提交使用者已看見的候選；下一次輸入再採用新版字庫。
     if !next.is_composing() || !matches!(key, Key::Select(_) | Key::Space) {
-        if let Ok(Some(updated)) = dictionary() {
+        if let Ok(Some(updated)) = dictionaries(next.input_mode) {
             next.update_dictionaries(updated);
         }
     }
@@ -139,6 +141,7 @@ pub(super) unsafe fn perform_key(service: *mut TextService, context: Raw, key: K
         ascii: next.ascii_mode,
         simplified: next.simplification,
         startup: next.startup_ascii,
+        input_mode: next.input_mode,
         menu: next.menu_open,
         composing: (*service).composition.is_active(),
     };
@@ -208,6 +211,8 @@ unsafe fn complete_key(
         Some(ModeAction::ToggleSimplification)
     } else if previous.startup != next.startup_ascii {
         Some(ModeAction::ToggleStartup)
+    } else if previous.input_mode != next.input_mode {
+        Some(ModeAction::for_input_mode(next.input_mode))
     } else if previous.reverse != next.reverse_exact() {
         Some(ModeAction::for_reverse_mode(next.reverse_exact()))
     } else {
@@ -231,12 +236,15 @@ unsafe fn complete_key(
                 ("simplified", i64::from(next.simplification)),
                 ("startup_ascii", i64::from(next.startup_ascii)),
                 ("jyutping", i64::from(next.reverse_exact().is_some())),
+                ("input_mode", next.input_mode as i64),
                 ("shared", i64::from(shared)),
             ],
         );
     }
     let reverse = next.reverse_exact();
-    let returned_to_cangjie = previous.reverse.is_some() && reverse.is_none() && !next.ascii_mode;
+    let changed_input_mode = previous.input_mode != next.input_mode
+        || (previous.reverse.is_some() && reverse.is_none() && !next.ascii_mode);
+    let input_mode = next.input_mode;
     let new_ascii = next.ascii_mode;
     let new_simplification = next.simplification;
     (*service).session = Some(next);
@@ -254,8 +262,8 @@ unsafe fn complete_key(
         Some(if new_simplification { "簡" } else { "繁" })
     } else if key == Key::ToggleJyutping && previous.reverse.is_none() && reverse.is_some() {
         Some("粵拼模式")
-    } else if returned_to_cangjie {
-        Some("倉頡模式")
+    } else if changed_input_mode {
+        Some(input_mode.toast())
     } else if key == Key::ToggleReverseExact && previous.reverse != reverse {
         Some(if reverse == Some(true) {
             "精確拼音"
@@ -388,6 +396,7 @@ pub(super) unsafe fn observe_key_down(service: *mut TextService, key: usize) -> 
         mods,
         session.is_composing() || (session.reverse_exact().is_some() && !session.menu_open),
         session.menu_open,
+        session.stroke_input(),
     )
 }
 
